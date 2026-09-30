@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import type { ClassReport, Settings } from '../core/types.ts';
-import { taskHeader } from '../core/structure.ts';
-import { injectCharts, type ChartJob, type ChartSeries } from './chart.ts';
+import { taskHeader, columnName } from '../core/structure.ts';
+import { injectCharts, type ChartJob, type ChartSeries, type DrawingShape } from './chart.ts';
 
 /** 1 → A, 27 → AA. */
 export function colLetter(n: number): string {
@@ -38,10 +38,14 @@ function gradeFormula(cell: string, th: ClassReport['thresholds']): string {
   return `IF(${cell}>=${th.five},5,IF(${cell}>=${th.four},4,IF(${cell}>=${th.three},3,2)))`;
 }
 
-/** Сколько строк занимает заголовок при заданной ширине объединённой области. */
+/**
+ * Высота строки заголовка (пт) при заданной ширине объединённой области (в символах 11 пт).
+ * Шрифт 18 пт жирный: в строку помещается ≈0,45 ширины в символах (перенос по словам теряет место),
+ * строка ≈24 пт. Раньше лимит 140 и коэффициент 0,55 обрезали последнюю строку «учебный год».
+ */
 function titleHeight(text: string, widthChars: number): number {
-  const lines = Math.max(3, Math.ceil(text.length / Math.max(20, widthChars * 0.55)));
-  return Math.min(140, Math.max(66, lines * 24 + 12));
+  const lines = Math.max(3, Math.ceil(text.length / Math.max(20, widthChars * 0.45)));
+  return Math.min(180, Math.max(66, lines * 24 + 16));
 }
 
 function uniqueSheetName(name: string, used: Set<string>): string {
@@ -107,16 +111,19 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   let c = L.scoreStart;
   r.tasks.forEach((task, ti) => {
     const cols = r.columns.filter((x) => x.taskIndex === ti);
-    if (!task.parts.length) { head(c, c, task.title || taskHeader(task, ti)); c++; return; }
-    head(c, c + cols.length - 1, task.title || taskHeader(task, ti), H1, H1);
+    if (!task.parts.length) { head(c, c, taskHeader(task, ti)); c++; return; }
+    head(c, c + cols.length - 1, taskHeader(task, ti), H1, H1);
     cols.forEach((col, i) => { const cell = ws.getCell(H2, c + i); cell.value = col.header; cell.alignment = center; });
     c += cols.length;
   });
   head(L.total, L.total, 'Общий балл');
   head(L.percent, L.percent, 'В%');
   head(L.grade, L.grade, 'Оценивание');
-  ws.getRow(H1).height = 43.5;
-  ws.getRow(H2).height = 28.5;
+  // с названиями заданий/критериев шапке нужно больше места
+  const hasTitles = r.tasks.some((t) => t.title?.trim());
+  const hasLabels = r.tasks.some((t) => t.parts.some((p) => p.label?.trim()));
+  ws.getRow(H1).height = hasTitles ? 60 : 43.5;
+  ws.getRow(H2).height = hasLabels ? 45 : 28.5;
   for (const rr of [H1, H2]) for (let cc = 1; cc <= L.last; cc++) { const cell = ws.getCell(rr, cc); cell.border = thin; cell.font = font; }
 
   // ученики
@@ -200,28 +207,45 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   ws.pageSetup = { orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
   ws.views = [{ showGridLines: true }];
 
-  // диаграмма — ниже подписи
+  // фигуры: фиолетовая цифра варианта справа от заголовка и блок «Примечание» под подписью
+  const shapes: DrawingShape[] = [];
+  const variant = s.variantLabel.trim() || (r.absentColumns ? '2' : '1');
+  shapes.push({ kind: 'variant', text: variant, anchor: { fromCol: titleEnd, fromRow: 0, toCol: L.last + 1, toRow: 1 } });
+  const noteLines = s.noteText.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  if (noteLines.length) {
+    shapes.push({ kind: 'note', lines: noteLines, anchor: { fromCol: 0, fromRow: signRow + 1, toCol: L.last + 1, toRow: signRow + 7 } });
+  }
+
+  // диаграмма — ниже примечания (или подписи)
   const series: ChartSeries[] = r.columns.map((col, ci) => {
     const cc = L.scoreStart + ci;
-    const task = r.tasks[col.taskIndex];
-    const name = col.partIndex < 0 ? (task.title || taskHeader(task, col.taskIndex)) : `${col.taskIndex + 1}.${col.partIndex + 1} (${col.header})`;
+    const name = columnName(r.tasks, col);
     return { name, valRef: `${sheetRef}!$${A(cc)}$${first}:$${A(cc)}$${lastRow}`, values: r.rows.map((row) => (row.absent ? null : row.scores[ci])) };
   });
-  if (s.chartIncludeTotal) {
-    series.push({ name: 'Общий балл', nameRef: `${sheetRef}!$${A(L.total)}$${H1}`, valRef: `${sheetRef}!$${A(L.total)}$${first}:$${A(L.total)}$${lastRow}`, values: r.rows.map((row) => (row.absent ? null : row.total)) });
-  }
-  const chartTop = signRow + 3;
+  const totalSeries: ChartSeries | undefined = s.chartIncludeTotal
+    ? { name: 'Общий балл', nameRef: `${sheetRef}!$${A(L.total)}$${H1}`, valRef: `${sheetRef}!$${A(L.total)}$${first}:$${A(L.total)}$${lastRow}`, values: r.rows.map((row) => (row.absent ? null : row.total)) }
+    : undefined;
+  const chartTop = noteLines.length ? signRow + 9 : signRow + 3;
+  const chartRight = Math.max(L.last, 10) + (r.rows.length > 25 ? 2 : 0);
   return {
     sheetId: ws.id,
     spec: {
       title: r.chartTitle,
-      catRef: `${sheetRef}!$A$${first}:$B$${lastRow}`,
-      catNums: r.rows.map((row) => String(row.n)),
-      catNames: r.rows.map((row) => row.name),
+      catLabels: r.rows.map((row) => shortName(row.name)),
       series,
+      totalSeries,
+      max: r.max,
     },
-    anchor: { fromCol: 0, fromRow: chartTop - 1, toCol: L.last, toRow: chartTop + 21 },
+    anchor: { fromCol: 0, fromRow: chartTop - 1, toCol: chartRight, toRow: chartTop - 1 + 26 },
+    shapes,
   };
+}
+
+/** «Ахмедова Малика Рустамовна» → «Ахмедова М.» (фамилия + инициал имени). */
+export function shortName(full: string): string {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return parts[0] ?? '';
+  return `${parts[0]} ${parts[1][0]}.`;
 }
 
 /** Собрать книгу: лист на класс + диаграммы. */

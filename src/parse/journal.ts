@@ -141,7 +141,16 @@ export function shortTeacherName(full: string | undefined): string {
   if (!full) return '';
   const parts = full.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
   if (parts.length < 2) return full;
-  const surname = parts[parts.length - 1];
-  const initials = parts.slice(0, -1).map((p) => p[0].toUpperCase() + '.').join('');
-  return `${surname} ${initials}`;
+  // фамилия может стоять первой («Ro`ziyeva Mohira …») или последней («Мутабар Мухаммаджоновна Ахмедова»)
+  const surnameLike = /(ов|ова|ев|ева|ёв|ёва|ин|ина|ын|ына|ский|ская|цкий|цкая|ич|ко|ук|юк|ян|дзе|ли|ов[a-z]*|yev|yeva|ev|eva|ov|ova|in|ina|zoda|zade)$/i;
+  const patronymicLike = /(вич|вна|чна|ич|o[‘'’`]?g[‘'’`]?li|qizi|ugli|kizi)$/i;
+  let si = parts.length - 1;
+  if (!surnameLike.test(parts[si]) || patronymicLike.test(parts[si])) {
+    const first = surnameLike.test(parts[0]) && !patronymicLike.test(parts[0]);
+    if (first) si = 0;
+  }
+  const surname = parts[si];
+  const rest = parts.filter((_, i) => i !== si).filter((p) => !/^(qizi|ugli|o[‘'’`]?g[‘'’`]?li|kizi)$/i.test(p));
+  const initials = rest.slice(0, 2).map((p) => p[0].toUpperCase() + '.').join('');
+  return initials ? `${surname} ${initials}` : surname;
 }

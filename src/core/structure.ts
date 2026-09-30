@@ -1,4 +1,4 @@
-import type { Structure, Task, Part, ScoreColumn } from './types.ts';
+import type { Structure, Task, Part, ScoreColumn, Preset } from './types.ts';
 
 /** Сумма максимумов всех заданий. */
 export function structureMax(s: Structure): number {
@@ -14,7 +14,7 @@ export function flattenColumns(s: Structure): ScoreColumn[] {
   s.tasks.forEach((t, ti) => {
     if (t.parts.length) {
       t.parts.forEach((p, pi) =>
-        cols.push({ key: `t${ti}p${pi}`, taskIndex: ti, partIndex: pi, header: p.label || pointsLabel(p.max), max: p.max }),
+        cols.push({ key: `t${ti}p${pi}`, taskIndex: ti, partIndex: pi, header: partHeader(p), max: p.max }),
       );
     } else {
       cols.push({ key: `t${ti}`, taskIndex: ti, partIndex: -1, header: '', max: t.max });
@@ -29,9 +29,24 @@ export function pointsLabel(n: number): string {
   return `${n} ${w}`;
 }
 
-/** Заголовок задания в строке 5: «2 задание 40 баллов». */
+/** Заголовок задания в строке 5: «2 задание 40 баллов», при наличии названия — со второй строкой. */
 export function taskHeader(t: Task, i: number): string {
-  return `${i + 1} задание ${pointsLabel(taskMax(t))}`;
+  const base = `${i + 1} задание ${pointsLabel(taskMax(t))}`;
+  return t.title?.trim() ? `${base}\n${t.title.trim()}` : base;
+}
+
+/** Заголовок подкритерия в строке 6: «5 баллов» или «Название\n5 баллов». */
+export function partHeader(p: Part): string {
+  return p.label?.trim() ? `${p.label.trim()}\n${pointsLabel(p.max)}` : pointsLabel(p.max);
+}
+
+/** Название колонки для легенды диаграммы: «2.3 Чертёж (20 баллов)» или «1 задание — Тест». */
+export function columnName(tasks: Task[], col: ScoreColumn): string {
+  const t = tasks[col.taskIndex];
+  if (!t) return '';
+  if (col.partIndex < 0) return t.title?.trim() ? `${col.taskIndex + 1} задание — ${t.title.trim()}` : taskHeader(t, col.taskIndex);
+  const p = t.parts[col.partIndex];
+  return `${col.taskIndex + 1}.${col.partIndex + 1}${p?.label?.trim() ? ' ' + p.label.trim() : ''} (${pointsLabel(p?.max ?? col.max)})`;
 }
 
 /**
@@ -51,16 +66,51 @@ export function parseStructure(text: string): Structure | null {
   return tasks.length ? { tasks } : null;
 }
 
+/** Разобрать текст, сохранив названия заданий и критериев из прежней структуры (по позициям). */
+export function structureFromText(text: string, prev?: Structure): Structure | null {
+  const s = parseStructure(text);
+  if (!s || !prev) return s;
+  s.tasks.forEach((t, i) => {
+    const p = prev.tasks[i];
+    if (!p) return;
+    t.title = p.title ?? '';
+    t.parts.forEach((part, j) => { part.label = p.parts[j]?.label ?? ''; });
+  });
+  return s;
+}
+
+/** Краткая запись (только баллы, без названий). Служит ключом лестницы. */
 export function structureToText(s: Structure): string {
   return s.tasks.map((t) => (t.parts.length ? t.parts.map((p) => p.max).join('+') : String(t.max))).join('; ');
 }
 
-export const PRESETS: { name: string; text: string }[] = [
-  { name: 'СОР 50: 5; 5+5+20+10; 5', text: '5; 5+5+20+10; 5' },
-  { name: 'СОР 50: 5; 5+30+5; 5', text: '5; 5+30+5; 5' },
-  { name: 'СОР 50: 5; 5+10+20+5; 5', text: '5; 5+10+20+5; 5' },
-  { name: 'СОР 50: 5; 5+10+10+10+5; 5', text: '5; 5+10+10+10+5; 5' },
-  { name: '6 класс: 5; 2+7+7+7+7+5+5; 5', text: '5; 2+7+7+7+7+5+5; 5' },
-  { name: '7 класс: 5; 2+3+7+7+7+9+5; 5', text: '5; 2+3+7+7+7+9+5; 5' },
-  { name: 'СОЧ 40: 5; 5+5+10+5+5; 5', text: '5; 5+5+10+5+5; 5' },
+export function cloneStructure(s: Structure): Structure {
+  return { tasks: s.tasks.map((t) => ({ title: t.title ?? '', max: t.max, parts: t.parts.map((p) => ({ label: p.label ?? '', max: p.max })) })) };
+}
+
+/** Пересчитать max заданий с критериями. */
+export function normalizeStructure(s: Structure): Structure {
+  for (const t of s.tasks) if (t.parts.length) t.max = t.parts.reduce((a, p) => a + p.max, 0);
+  return s;
+}
+
+let presetSeq = 0;
+export function newPresetId(): string {
+  return `p${Date.now().toString(36)}${(++presetSeq).toString(36)}`;
+}
+
+export const BUILTIN_PRESETS: { name: string; text: string }[] = [
+  { name: '5 класс — СОР 50', text: '5; 5+5+20+10; 5' },
+  { name: '6 класс — СОР 50', text: '5; 2+7+7+7+7+5+5; 5' },
+  { name: '7 класс — СОР 50', text: '5; 2+3+7+7+7+9+5; 5' },
+  { name: '8 класс — СОР 50', text: '5; 5+10+10+10+5; 5' },
+  { name: 'СОР 50 — 5; 5+30+5; 5', text: '5; 5+30+5; 5' },
+  { name: 'СОЧ 40 — 5; 5+5+10+5+5; 5', text: '5; 5+5+10+5+5; 5' },
 ];
+
+export function builtinPresets(): Preset[] {
+  return BUILTIN_PRESETS.map((p) => ({ id: newPresetId(), name: p.name, structure: parseStructure(p.text)! }));
+}
+
+/** Совместимость: старый список шаблонов для выпадающего списка. */
+export const PRESETS = BUILTIN_PRESETS;

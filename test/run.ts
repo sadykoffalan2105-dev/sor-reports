@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { parseWorkbook, shortTeacherName } from '../src/parse/journal.ts';
 import { buildReport } from '../src/core/report.ts';
 import { parseStructure, flattenColumns } from '../src/core/structure.ts';
-import { generateLadder, ladderErrors } from '../src/core/ladder.ts';
+import { generateLadder, ladderErrors, fillLadderGaps } from '../src/core/ladder.ts';
 import { distribute } from '../src/core/distribute.ts';
 import { exportWorkbook, fileNameFor } from '../src/export/xlsx.ts';
 import type { Settings } from '../src/core/types.ts';
@@ -32,6 +32,8 @@ const settings: Settings = {
   thresholds: { five: 0.86, four: 0.66, three: 0.3 },
   includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
   fontName: 'Aptos Narrow', ladders: {},
+  variantLabel: '',
+  noteText: 'Примечание\n- Оценки БСБ должны быть внесены в emaktab.uz в течение 5–7 дней.\n- Ученики, получившие оценку «2» (0–29 %), должны быть привлечены учителем предмета к дополнительным занятиям после уроков.',
 };
 
 // Лестницы по правилу учителя — сверка с рукописными образцами (СОР №2)
@@ -68,3 +70,29 @@ const s2 = { ...settings, includeAbsent: true, absentColumns: true, showDates: t
 const bytes2 = await exportWorkbook(classes.map((c) => buildReport(c, s2)), s2);
 writeFileSync('.out/variant-2.2.xlsx', bytes2);
 console.log('записано .out/variant-2.2.xlsx', bytes2.length);
+
+// вариант с названиями заданий и критериев в шапке (проверка высоты строк и легенды)
+const s3 = { ...settings, structure: parseStructure('5; 5+5+20+10; 5')! };
+s3.structure.tasks[0].title = 'Тест';
+s3.structure.tasks[1].title = 'Практическая работа';
+s3.structure.tasks[1].parts[2].label = 'Чертёж';
+s3.structure.tasks[1].parts[3].label = 'Изделие';
+const bytes3 = await exportWorkbook(classes.map((c) => buildReport(c, s3, s3.structure)), s3);
+writeFileSync('.out/titles.xlsx', bytes3);
+console.log('записано .out/titles.xlsx', bytes3.length);
+
+// достройка промежуточных строк между строками с фото (6 класс: известны только чётные баллы)
+{
+  const text = '5; 2+7+7+7+7+5+5; 5';
+  const maxes = flattenColumns(parseStructure(text)!).map((c) => c.max);
+  const photo: Record<number, number[]> = { 50: [5,2,7,7,7,7,5,5,5], 48: [5,2,7,7,7,5,5,5,5], 46: [5,2,7,7,5,5,5,5,5], 44: [5,2,7,5,5,5,5,5,5], 42: [5,2,5,5,5,5,5,5,5], 40: [5,2,5,5,4,4,5,5,5] };
+  let rows = generateLadder(maxes);
+  const known = new Set<number>();
+  for (const [t, sc] of Object.entries(photo)) { rows[Number(t)] = sc; known.add(Number(t)); }
+  rows = fillLadderGaps(rows, known, maxes);
+  const errs = ladderErrors(rows, maxes);
+  let mono = true;
+  for (let t = 49; t >= 40; t--) for (let i = 0; i < maxes.length; i++) if (rows[t][i] > rows[t + 1][i]) mono = false;
+  console.log('достройка: 47 =', rows[47].join(' '), '| 41 =', rows[41].join(' '), '| ошибок', errs.length, '| монотонно', mono);
+  if (errs.length || !mono) { console.log('✗ достройка лестницы неверна'); process.exitCode = 1; }
+}

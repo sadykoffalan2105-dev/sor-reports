@@ -40,6 +40,9 @@ export interface Part { label: string; max: number }
 export interface Task { title: string; parts: Part[]; max: number }
 export interface Structure { tasks: Task[] }
 
+/** Сохранённая разбаловка с названием (например, «5 класс»). */
+export interface Preset { id: string; name: string; structure: Structure }
+
 export type Strategy = 'ladder' | 'largest' | 'proportional' | 'random';
 
 export interface Thresholds { five: number; four: number; three: number }
@@ -50,15 +53,23 @@ export interface Settings {
   number: number;         // СОР-2 → 2
   teacherShort: string;   // «Ахмедова М.М.»
   year: string;
+  /** Текущая (общая) разбаловка — копия структуры выбранного пресета. */
   structure: Structure;
+  /** Библиотека разбаловок и id выбранной общей. */
+  presets: Preset[];
+  presetId: string;
   strategy: Strategy;
   seed: number;
   thresholds: Thresholds;
   includeAbsent: boolean;   // строки отсутствующих в таблице
   absentColumns: boolean;   // колонки «Причина отсутствия» и «Дата сдачи»
   showDates: boolean;       // подставлять дату из журнала
-  chartIncludeTotal: boolean;
+  chartIncludeTotal: boolean;   // подписи общего балла над столбцами диаграммы
   fontName: string;
+  /** Крупная фиолетовая цифра справа от заголовка (вариант формы). Пусто — автоматически: «1», с колонками отсутствия — «2». */
+  variantLabel: string;
+  /** Текст блока «Примечание» под подписью (пусто — блок не выводится). Строки разделяются \n. */
+  noteText: string;
   /** Отредактированные лестницы баллов, ключ — текст разбаловки («5; 5+5+20+10; 5»). */
   ladders: Record<string, number[][]>;
 }

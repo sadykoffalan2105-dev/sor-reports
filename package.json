@@ -13,8 +13,10 @@
     "vite": "^8.3.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.130.0",
     "exceljs": "^4.4.0",
     "jszip": "^3.10.2",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zod": "^4.6.5"
   }
 }
