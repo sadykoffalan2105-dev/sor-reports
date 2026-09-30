@@ -1,7 +1,8 @@
 import './style.css';
 import { parseWorkbook, parseManualList, shortTeacherName } from './parse/journal.ts';
 import { buildReport, recalcRow, recalcSummary } from './core/report.ts';
-import { parseStructure, structureToText, structureMax, taskHeader, PRESETS } from './core/structure.ts';
+import { parseStructure, structureToText, structureMax, flattenColumns, taskHeader, PRESETS } from './core/structure.ts';
+import { generateLadder, ladderErrors, ladderFits, type Ladder } from './core/ladder.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
 import type { ClassReport, JournalClass, Settings, Structure } from './core/types.ts';
 
@@ -13,25 +14,29 @@ const DEFAULTS: Settings = {
   school: 'Государственная специализированная общеобразовательная школа № 300',
   kind: 'СОР', number: 1, teacherShort: '', year: '2025–2026',
   structure: parseStructure('5; 5+5+20+10; 5')!,
-  strategy: 'largest', seed: 7,
+  strategy: 'ladder', seed: 7,
   thresholds: { five: 0.86, four: 0.66, three: 0.3 },
   includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
   fontName: 'Aptos Narrow',
+  ladders: {},
 };
 
-const LS = 'sor-reports.settings.v1';
+const LS = 'sor-reports.settings.v2';
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(LS);
-    if (raw) return { ...DEFAULTS, ...JSON.parse(raw), thresholds: { ...DEFAULTS.thresholds, ...(JSON.parse(raw).thresholds ?? {}) } };
-  } catch { /* нет доступа к хранилищу — работаем с умолчаниями */ }
-  return { ...DEFAULTS };
+    if (raw) {
+      const j = JSON.parse(raw) as Partial<Settings>;
+      return { ...DEFAULTS, ...j, thresholds: { ...DEFAULTS.thresholds, ...(j.thresholds ?? {}) }, ladders: j.ladders ?? {} };
+    }
+  } catch { /* хранилище недоступно — умолчания */ }
+  return { ...DEFAULTS, ladders: {} };
 }
 function saveSettings(): void {
   try { localStorage.setItem(LS, JSON.stringify(state.settings)); } catch { /* ignore */ }
 }
 
-const state = { classes: [] as ClassState[], settings: loadSettings(), active: 0 };
+const state = { classes: [] as ClassState[], settings: loadSettings(), active: 0, ladderKey: '' };
 
 /* ---------- утилиты ---------- */
 
@@ -39,21 +44,32 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getEl
 const h = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const pct = (x: number): string => `${Math.round(x * 100)}%`;
 const fix = (x: number): string => (Number.isInteger(x) ? String(x) : x.toFixed(2));
+const PALETTE = ['#4472c4', '#ed7d31', '#a5a5a5', '#ffc000', '#5b9bd5', '#70ad47', '#264478', '#9e480e', '#636363', '#997300'];
 
+function structureTextFor(cs: ClassState): string {
+  return parseStructure(cs.structureText) ? structureToText(parseStructure(cs.structureText)!) : structureToText(state.settings.structure);
+}
 function structureFor(cs: ClassState): Structure {
   return parseStructure(cs.structureText) ?? state.settings.structure;
 }
 function selectedMax(cls: JournalClass): number | undefined {
   return (cls.assessments.find((a) => a.id === cls.selectedAssessment) ?? cls.assessments[0])?.max;
 }
+/** Лестница для разбаловки: отредактированная из настроек или построенная по правилу. */
+function ladderFor(text: string): { rows: Ladder; custom: boolean; maxes: number[] } {
+  const st = parseStructure(text) ?? state.settings.structure;
+  const maxes = flattenColumns(st).map((c) => c.max);
+  const saved = state.settings.ladders[text];
+  if (ladderFits(saved, maxes)) return { rows: saved, custom: true, maxes };
+  return { rows: generateLadder(maxes), custom: false, maxes };
+}
 
 function rebuild(index?: number): void {
   state.classes.forEach((cs, i) => {
     if (index != null && i !== index) return;
-    cs.report = cls_hasScores(cs.cls) ? buildReport(cs.cls, state.settings, structureFor(cs)) : null;
+    cs.report = cs.cls.assessments.length ? buildReport(cs.cls, state.settings, structureFor(cs), ladderFor(structureTextFor(cs)).rows) : null;
   });
 }
-const cls_hasScores = (c: JournalClass) => c.assessments.length > 0;
 
 function download(bytes: Uint8Array, name: string): void {
   const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
@@ -115,11 +131,114 @@ function renderClasses(): void {
   }).join('');
 }
 
+/* ---------- рендер: лестница баллов ---------- */
+
+function ladderKeys(): string[] {
+  const keys = new Set<string>([structureToText(state.settings.structure)]);
+  for (const cs of state.classes) keys.add(structureTextFor(cs));
+  for (const k of Object.keys(state.settings.ladders)) if (parseStructure(k)) keys.add(k);
+  return [...keys];
+}
+
+function renderLadder(): void {
+  const keys = ladderKeys();
+  if (!keys.includes(state.ladderKey)) state.ladderKey = keys[0];
+  const sel = $('ladder-key') as HTMLSelectElement;
+  sel.innerHTML = keys.map((k) => {
+    const who = state.classes.filter((cs) => structureTextFor(cs) === k).map((cs) => cs.cls.className);
+    const label = k === structureToText(state.settings.structure) ? `общая: ${k}` : `${who.join(', ') || 'сохранённая'}: ${k}`;
+    return `<option value="${h(k)}" ${k === state.ladderKey ? 'selected' : ''}>${h(label)}${state.settings.ladders[k] ? ' (правлена)' : ''}</option>`;
+  }).join('');
+
+  const key = state.ladderKey;
+  const st = parseStructure(key)!;
+  const cols = flattenColumns(st);
+  const { rows, custom, maxes } = ladderFor(key);
+  const auto = generateLadder(maxes);
+  const bad = new Set(ladderErrors(rows, maxes));
+  $('ladder-status').textContent = custom ? `${key} — с правками${bad.size ? `, ошибок: ${bad.size}` : ''}` : `${key} — по правилу`;
+  const head = cols.map((c) => `<th title="${h(taskHeader(st.tasks[c.taskIndex], c.taskIndex))}">${c.partIndex < 0 ? `${c.taskIndex + 1} зд` : `${c.taskIndex + 1}.${c.partIndex + 1}`}<br><small>${c.max}</small></th>`).join('');
+  const max = rows.length - 1;
+  let body = '';
+  for (let t = max; t >= 0; t--) {
+    const r = rows[t];
+    const edited = custom && auto[t].some((v, i) => v !== r[i]);
+    body += `<tr data-t="${t}" class="${bad.has(t) ? 'bad' : ''} ${edited ? 'edited' : ''}"><th class="tot">${t}</th>${r.map((v, i) => `<td><input type="number" min="0" max="${maxes[i]}" value="${v}" data-c="${i}" /></td>`).join('')}<td class="sum">${r.reduce((a, b) => a + b, 0)}</td></tr>`;
+  }
+  $('ladder').innerHTML = `<table class="ladder-t"><thead><tr><th class="tot">Балл</th>${head}<th>Σ</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function onLadderEdit(input: HTMLInputElement): void {
+  const key = state.ladderKey;
+  const { rows, maxes } = ladderFor(key);
+  const copy = rows.map((r) => r.slice());
+  const t = Number(input.closest('tr')!.getAttribute('data-t'));
+  const c = Number(input.dataset.c);
+  const v = Math.round(Number(input.value));
+  copy[t][c] = Number.isFinite(v) ? v : 0;
+  state.settings.ladders[key] = copy;
+  saveSettings();
+  // подсветить строку и сумму без полной перерисовки
+  const tr = input.closest('tr')!;
+  const sum = copy[t].reduce((a, b) => a + b, 0);
+  tr.querySelector('.sum')!.textContent = String(sum);
+  tr.classList.toggle('bad', sum !== t || copy[t].some((x, i) => x < 0 || x > maxes[i]));
+  tr.classList.add('edited');
+  $('ladder-status').textContent = `${key} — с правками`;
+  rebuild(); renderTabs(); renderPreview();
+}
+
 /* ---------- рендер: предпросмотр ---------- */
 
 function renderTabs(): void {
   $('tabs').innerHTML = state.classes.map((cs, i) =>
     `<button class="tab ${i === state.active ? 'active' : ''}" data-i="${i}">${h(cs.cls.className)}${cs.cls.group === 'девочки' ? ' Д' : ''}</button>`).join('');
+}
+
+function renderFootInto(el: HTMLElement, r: ClassReport): void {
+  const lead = r.absentColumns ? '<td></td><td></td>' : '';
+  el.innerHTML = `
+    <tr><td></td><td class="lbl">Сред.балл:</td>${lead}${r.avg.map((a) => `<td>${fix(a)}</td>`).join('')}<td>${fix(r.avgTotal)}</td><td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td></tr>
+    <tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td>${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>
+    <tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td><td colspan="${r.columns.length + 2}"></td></tr>
+    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td><td colspan="${r.columns.length + 2}"></td></tr>
+    <tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${r.columns.length + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`;
+}
+
+function renderStats(r: ClassReport): string {
+  const part = r.rows.filter((x) => !x.absent);
+  const c3 = part.filter((x) => x.grade === 3).length, c2 = part.filter((x) => x.grade === 2).length;
+  const tile = (v: string, l: string, cls = '') => `<div class="stat ${cls}"><b>${v}</b><span>${l}</span></div>`;
+  return `<div class="stats">${tile(String(r.participants), 'участвовали')}${tile(String(r.absent), 'отсутствовали')}${tile(pct(r.max ? r.avgTotal / r.max : 0), 'средний результат')}${tile(String(r.count5), 'оценка «5»', 'g5')}${tile(String(r.count4), 'оценка «4»', 'g4')}${tile(String(c3), 'оценка «3»', 'g3')}${tile(String(c2), 'оценка «2»', 'g2')}${tile(pct(r.efficiency), 'эффективность знаний')}</div>`;
+}
+
+/** Столбчатая диаграмма с накоплением, как в книге Excel. */
+function renderChart(r: ClassReport): string {
+  const rows = r.rows.filter((x) => !x.absent);
+  if (!rows.length) return '';
+  const W = 960, H = 300, padL = 34, padB = 78, padT = 10, padR = 8;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const bw = innerW / rows.length, gap = Math.min(6, bw * 0.25);
+  const y = (v: number) => padT + innerH - (v / r.max) * innerH;
+  let svg = '';
+  for (let g = 0; g <= 5; g++) {
+    const v = (r.max / 5) * g;
+    svg += `<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" stroke="#e3e7ec"/><text x="${padL - 6}" y="${y(v) + 4}" font-size="10" text-anchor="end" fill="#5d6b7a">${Math.round(v)}</text>`;
+  }
+  rows.forEach((row, i) => {
+    const x = padL + i * bw + gap / 2;
+    let acc = 0;
+    row.scores.forEach((v, ci) => {
+      if (!v) return;
+      svg += `<rect x="${x}" y="${y(acc + v)}" width="${bw - gap}" height="${y(acc) - y(acc + v)}" fill="${PALETTE[ci % PALETTE.length]}"><title>${h(row.name)} — ${h(r.columns[ci].header || taskHeader(r.tasks[r.columns[ci].taskIndex], r.columns[ci].taskIndex))}: ${v}</title></rect>`;
+      acc += v;
+    });
+    svg += `<text x="${x + (bw - gap) / 2}" y="${y(acc) - 3}" font-size="9" text-anchor="middle" fill="#1b2430">${acc}</text>`;
+    const short = row.name.split(' ')[0];
+    svg += `<text transform="translate(${x + (bw - gap) / 2},${H - padB + 8}) rotate(-60)" font-size="9" text-anchor="end" fill="#5d6b7a">${h(short)}</text>`;
+  });
+  const legend = r.columns.map((c, ci) => `<span><i style="background:${PALETTE[ci % PALETTE.length]}"></i>${h(c.partIndex < 0 ? taskHeader(r.tasks[c.taskIndex], c.taskIndex) : `${c.taskIndex + 1}.${c.partIndex + 1} — ${c.header}`)}</span>`).join('');
+  return `<div class="chart"><h3>${h(r.chartTitle)}</h3><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Баллы учеников по заданиям">${svg}</svg><div class="legend">${legend}</div></div>`;
 }
 
 function renderPreview(): void {
@@ -153,9 +272,8 @@ function renderPreview(): void {
   }).join('');
   const footEl = document.createElement('tfoot');
   renderFootInto(footEl, r);
-  const foot = footEl.innerHTML;
 
-  box.innerHTML = `${mismatch}<div class="sheet">
+  box.innerHTML = `${mismatch}${renderStats(r)}<div class="sheet">
     <p class="title">${h(r.title)}</p>
     <div class="hdr"><b>Участвовали: ${r.participants}</b><span>дата проведение ${r.kind}: ${h(r.date ?? '')}</span>
       <b>Отсутствовали: ${r.absent}</b><span>Дата внесения в emaktab.uz:</span>
@@ -163,9 +281,9 @@ function renderPreview(): void {
     <table class="rep"><thead>
       <tr><th rowspan="2">№</th><th rowspan="2">Фамилия имя ученика</th>${extra}${head1}<th rowspan="2">Общий балл</th><th rowspan="2">В%</th><th rowspan="2">Оценивание</th></tr>
       <tr>${head2}</tr></thead>
-      <tbody>${body}</tbody><tfoot>${foot}</tfoot></table>
+      <tbody>${body}</tbody><tfoot>${footEl.innerHTML}</tfoot></table>
     <p class="sign">Фамилия учителя-предметника: ${h(r.teacherShort)}__________________ &nbsp;&nbsp;&nbsp; Подпись ________</p>
-  </div>`;
+  </div>${renderChart(r)}`;
 }
 
 /** Правка балла в ячейке: пересчитать строку и итоги без перерисовки всей таблицы. */
@@ -185,17 +303,10 @@ function onScoreEdit(input: HTMLInputElement): void {
   tr.querySelector('[data-k="total"]')!.textContent = String(row.total);
   tr.querySelector('[data-k="pct"]')!.textContent = pct(row.percent);
   tr.querySelector('[data-k="grade"]')!.textContent = String(row.grade);
-  // итоги — перерисовать только tfoot
   renderFootInto($('preview').querySelector('tfoot')!, r);
-}
-function renderFootInto(el: HTMLElement, r: ClassReport): void {
-  const lead = r.absentColumns ? '<td></td><td></td>' : '';
-  el.innerHTML = `
-    <tr><td></td><td class="lbl">Сред.балл:</td>${lead}${r.avg.map((a) => `<td>${fix(a)}</td>`).join('')}<td>${fix(r.avgTotal)}</td><td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td></tr>
-    <tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td>${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>
-    <tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td><td colspan="${r.columns.length + 2}"></td></tr>
-    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td><td colspan="${r.columns.length + 2}"></td></tr>
-    <tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${r.columns.length + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`;
+  $('preview').querySelector('.stats')!.outerHTML = renderStats(r);
+  const chart = $('preview').querySelector('.chart');
+  if (chart) chart.outerHTML = renderChart(r);
 }
 
 /* ---------- настройки ---------- */
@@ -236,13 +347,26 @@ function bindSettings(): void {
     rebuild();
     render();
   };
-  $('sec-settings').addEventListener('change', apply);
+  $('sec-settings').addEventListener('change', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('#ladder-box')) return; // лестница обрабатывается отдельно
+    apply();
+  });
   $('s-structure').addEventListener('input', renderStructureView);
   $('s-preset').addEventListener('change', () => {
     const p = ($('s-preset') as HTMLSelectElement).value;
     if (p) { ($('s-structure') as HTMLInputElement).value = p; ($('s-preset') as HTMLSelectElement).value = ''; apply(); }
   });
   $('s-reseed').addEventListener('click', () => { ($('s-seed') as HTMLInputElement).value = String(Math.floor(Math.random() * 1e6)); apply(); });
+
+  $('ladder-key').addEventListener('change', () => { state.ladderKey = ($('ladder-key') as HTMLSelectElement).value; renderLadder(); });
+  $('ladder-reset').addEventListener('click', () => {
+    if (state.settings.ladders[state.ladderKey] && !confirm('Убрать правки и построить лестницу заново по правилу?')) return;
+    delete state.settings.ladders[state.ladderKey]; saveSettings(); rebuild(); render();
+  });
+  $('ladder').addEventListener('input', (e) => {
+    const t = e.target as HTMLInputElement; if (t.matches('input[data-c]')) onLadderEdit(t);
+  });
 }
 
 /* ---------- события ---------- */
@@ -302,7 +426,7 @@ function bindEvents(): void {
   $('print').addEventListener('click', () => window.print());
 }
 
-function render(): void { renderClasses(); renderTabs(); renderPreview(); }
+function render(): void { renderClasses(); renderLadder(); renderTabs(); renderPreview(); }
 
 bindSettings();
 bindEvents();

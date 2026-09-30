@@ -40,7 +40,7 @@ export interface Part { label: string; max: number }
 export interface Task { title: string; parts: Part[]; max: number }
 export interface Structure { tasks: Task[] }
 
-export type Strategy = 'largest' | 'proportional' | 'random';
+export type Strategy = 'ladder' | 'largest' | 'proportional' | 'random';
 
 export interface Thresholds { five: number; four: number; three: number }
 
@@ -59,6 +59,8 @@ export interface Settings {
   showDates: boolean;       // подставлять дату из журнала
   chartIncludeTotal: boolean;
   fontName: string;
+  /** Отредактированные лестницы баллов, ключ — текст разбаловки («5; 5+5+20+10; 5»). */
+  ladders: Record<string, number[][]>;
 }
 
 /** Колонка баллов в готовом отчёте. */

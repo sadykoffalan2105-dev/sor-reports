@@ -59,9 +59,20 @@
             <div id="s-structure-view" class="struct"></div>
           </label>
 
+          <details class="full ladder" id="ladder-box">
+            <summary>Лестница баллов <small id="ladder-status"></small></summary>
+            <div class="ladder-ctl">
+              <label>Для разбаловки <select id="ladder-key"></select></label>
+              <button class="btn small ghost" id="ladder-reset" type="button">Сбросить по правилу</button>
+              <span class="hint">Строка — общий балл, ячейки — баллы по заданиям. Правьте любые значения: сумма строки должна равняться баллу. Правки сохраняются в браузере.</span>
+            </div>
+            <div id="ladder" class="ladder-wrap"></div>
+          </details>
+
           <label>Как раскидывать недобор
             <select id="s-strategy">
-              <option value="largest">Снимать с самого тяжёлого задания (как в образце)</option>
+              <option value="ladder">По лестнице баллов (как у учителя)</option>
+              <option value="largest">Снимать с самого тяжёлого задания</option>
               <option value="proportional">Пропорционально весу заданий</option>
               <option value="random">Случайно, с сидом</option>
             </select>

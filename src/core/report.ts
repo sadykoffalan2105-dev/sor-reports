@@ -1,6 +1,7 @@
 import type { ClassReport, JournalClass, ReportRow, Settings } from './types.ts';
 import { flattenColumns } from './structure.ts';
 import { distribute, gradeFor, makeRng } from './distribute.ts';
+import { generateLadder, ladderFits, type Ladder } from './ladder.ts';
 
 /** Хеш строки → 32-битное число (для стабильного сида на ученика). */
 function hash(s: string): number {
@@ -35,11 +36,14 @@ export function fullDate(d: string | undefined, year: string | undefined): strin
 }
 
 /** Собрать отчёт по классу: раскидать баллы, посчитать итоги. */
-export function buildReport(cls: JournalClass, s: Settings, structure = s.structure): ClassReport {
+export function buildReport(cls: JournalClass, s: Settings, structure = s.structure, ladder?: Ladder): ClassReport {
   const a = cls.assessments.find((x) => x.id === cls.selectedAssessment) ?? cls.assessments[0];
   const columns = flattenColumns(structure);
   const maxes = columns.map((c) => c.max);
   const max = maxes.reduce((x, y) => x + y, 0);
+  const rowsOf = s.strategy === 'ladder'
+    ? (ladderFits(ladder, maxes) ? ladder : generateLadder(maxes))
+    : undefined;
   const rows: ReportRow[] = [];
   const absentNames: string[] = [];
   let n = 0;
@@ -52,7 +56,8 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
       return;
     }
     const rng = makeRng((s.seed ^ hash(st.name)) >>> 0);
-    const scores = distribute(score, maxes, s.strategy, rng);
+    const t = Math.max(0, Math.min(max, Math.round(score)));
+    const scores = rowsOf?.[t] ? rowsOf[t].slice() : distribute(score, maxes, s.strategy === 'ladder' ? 'largest' : s.strategy, rng);
     const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0 };
     recalcRow(row, max, s.thresholds);
     rows.push(row);

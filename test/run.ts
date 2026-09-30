@@ -2,7 +2,8 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { parseWorkbook, shortTeacherName } from '../src/parse/journal.ts';
 import { buildReport } from '../src/core/report.ts';
-import { parseStructure } from '../src/core/structure.ts';
+import { parseStructure, flattenColumns } from '../src/core/structure.ts';
+import { generateLadder, ladderErrors } from '../src/core/ladder.ts';
 import { distribute } from '../src/core/distribute.ts';
 import { exportWorkbook, fileNameFor } from '../src/export/xlsx.ts';
 import type { Settings } from '../src/core/types.ts';
@@ -27,11 +28,29 @@ const settings: Settings = {
   teacherShort: shortTeacherName(classes[0]?.teacher),
   year: '2025–2026',
   structure: parseStructure('5; 5+5+20+10; 5')!,
-  strategy: 'largest', seed: 1,
+  strategy: 'ladder', seed: 1,
   thresholds: { five: 0.86, four: 0.66, three: 0.3 },
   includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
-  fontName: 'Aptos Narrow',
+  fontName: 'Aptos Narrow', ladders: {},
 };
+
+// Лестницы по правилу учителя — сверка с рукописными образцами (СОР №2)
+const expect: Record<string, Record<number, number[]>> = {
+  '5; 5+5+20+10; 5': { 50: [5,5,5,20,10,5], 48: [5,5,5,18,10,5], 46: [5,5,5,16,10,5], 44: [5,5,5,14,10,5], 42: [5,5,5,14,8,5], 40: [5,5,5,14,6,5] },
+  '5; 2+7+7+7+7+5+5; 5': { 50: [5,2,7,7,7,7,5,5,5], 48: [5,2,7,7,7,5,5,5,5], 46: [5,2,7,7,5,5,5,5,5], 44: [5,2,7,5,5,5,5,5,5], 42: [5,2,5,5,5,5,5,5,5] },
+  '5; 2+3+7+7+7+9+5; 5': { 50: [5,2,3,7,7,7,9,5,5], 48: [5,2,3,7,7,7,7,5,5], 46: [5,2,3,7,7,7,5,5,5], 44: [5,2,3,7,7,5,5,5,5], 42: [5,2,3,7,5,5,5,5,5] },
+};
+let ok = 0, fail = 0;
+for (const [text, rows] of Object.entries(expect)) {
+  const maxes = flattenColumns(parseStructure(text)!).map((c) => c.max);
+  const ladder = generateLadder(maxes);
+  if (ladderErrors(ladder, maxes).length) { console.log('ЛЕСТНИЦА С ОШИБКАМИ', text); fail++; }
+  for (const [t, exp] of Object.entries(rows)) {
+    const got = ladder[Number(t)];
+    if (got.join() === exp.join()) ok++; else { fail++; console.log(`  ✗ ${text} @${t}: ждали ${exp.join(' ')}, получили ${got.join(' ')}`); }
+  }
+}
+console.log(`лестница: совпало ${ok}, расхождений ${fail}`);
 const reports = classes.map((c) => buildReport(c, settings));
 for (const r of reports) {
   console.log(r.sheetName, '|', r.title);
