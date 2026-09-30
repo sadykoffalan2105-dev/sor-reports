@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Отчёты СОР / СОЧ</title>
+    <meta name="description" content="Генератор школьных отчётов по СОР и СОЧ из выгрузки журнала emaktab: разбаловка по заданиям, формулы, диаграмма." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d6f42'/%3E%3Cpath d='M8 9h16v3H8zm0 6h16v3H8zm0 6h10v3H8z' fill='%23fff'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <h1>Отчёты СОР / СОЧ</h1>
+        <p class="sub">Загрузите выгрузку журнала — получите готовую книгу Excel: лист на класс, разбаловка по заданиям, формулы, итоги и диаграмма.</p>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="card" id="sec-files">
+        <h2><span class="num">1</span> Журналы классов</h2>
+        <label class="drop" id="drop">
+          <input type="file" id="file" multiple accept=".xls,.xlsx,.xlsm,.csv" hidden />
+          <strong>Перетащите файлы журнала сюда</strong> или нажмите, чтобы выбрать
+          <small>.xls / .xlsx из emaktab.uz — можно сразу несколько классов</small>
+        </label>
+        <div id="classes" class="classes"></div>
+        <details class="manual">
+          <summary>Ввести список вручную</summary>
+          <div class="manual-grid">
+            <label>Класс <input id="m-class" placeholder="5-С" /></label>
+            <label>Группа
+              <select id="m-group"><option value="">—</option><option>мальчики</option><option>девочки</option></select>
+            </label>
+            <label>Максимум <input id="m-max" type="number" value="50" min="1" /></label>
+            <label class="full">Ученики и баллы, по одному в строке (без балла — отсутствовал)
+              <textarea id="m-text" rows="6" placeholder="Алимбаев Бехруз 46&#10;Аллаёров Алиакбар — 44&#10;Цой Артём"></textarea>
+            </label>
+            <button class="btn" id="m-add" type="button">Добавить класс</button>
+          </div>
+        </details>
+      </section>
+
+      <section class="card" id="sec-settings">
+        <h2><span class="num">2</span> Настройки отчёта</h2>
+        <div class="grid">
+          <label class="full">Школа <input id="s-school" /></label>
+          <label>Вид работы
+            <select id="s-kind"><option>СОР</option><option>СОЧ</option></select>
+          </label>
+          <label>Номер <input id="s-number" type="number" min="1" max="12" /></label>
+          <label>Учитель (подпись) <input id="s-teacher" placeholder="Ахмедова М.М." /></label>
+          <label>Учебный год <input id="s-year" placeholder="2025–2026" /></label>
+
+          <label class="full">Разбаловка заданий <small>задания через «;», подкритерии через «+»</small>
+            <div class="row">
+              <input id="s-structure" placeholder="5; 5+5+20+10; 5" />
+              <select id="s-preset"><option value="">Шаблоны…</option></select>
+            </div>
+            <div id="s-structure-view" class="struct"></div>
+          </label>
+
+          <label>Как раскидывать недобор
+            <select id="s-strategy">
+              <option value="largest">Снимать с самого тяжёлого задания (как в образце)</option>
+              <option value="proportional">Пропорционально весу заданий</option>
+              <option value="random">Случайно, с сидом</option>
+            </select>
+          </label>
+          <label>Сид случайности
+            <div class="row"><input id="s-seed" type="number" min="0" /><button class="btn ghost" id="s-reseed" type="button" title="Новый сид">↻</button></div>
+          </label>
+
+          <fieldset class="full opts">
+            <legend>Оценивание: «5» от <input id="s-t5" type="number" step="1" min="0" max="100" class="pct" />%, «4» от <input id="s-t4" type="number" class="pct" />%, «3» от <input id="s-t3" type="number" class="pct" />%</legend>
+            <label class="chk"><input type="checkbox" id="s-absent" /> Показывать отсутствующих в таблице</label>
+            <label class="chk"><input type="checkbox" id="s-absentcols" /> Колонки «Причина отсутствия» и «Дата сдачи»</label>
+            <label class="chk"><input type="checkbox" id="s-dates" /> Подставлять дату проведения из журнала</label>
+            <label class="chk"><input type="checkbox" id="s-charttotal" /> В диаграмме показывать и общий балл</label>
+          </fieldset>
+        </div>
+      </section>
+
+      <section class="card" id="sec-preview">
+        <h2><span class="num">3</span> Предпросмотр и скачивание</h2>
+        <div class="actions">
+          <button class="btn primary" id="dl-all" type="button">Скачать книгу — все классы (.xlsx)</button>
+          <button class="btn" id="dl-one" type="button">Скачать этот класс</button>
+          <button class="btn ghost" id="reshuffle" type="button">Перераспределить баллы</button>
+          <button class="btn ghost" id="print" type="button">Печать</button>
+        </div>
+        <div id="tabs" class="tabs"></div>
+        <div id="preview" class="preview"></div>
+      </section>
+    </main>
+
+    <footer class="wrap foot">Всё считается в браузере — файлы никуда не отправляются. Баллы в таблице можно править вручную, итоги и формулы пересчитаются.</footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
