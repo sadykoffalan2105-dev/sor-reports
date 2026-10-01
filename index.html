@@ -112,6 +112,37 @@
             <textarea id="s-note" rows="3"></textarea>
           </label>
         </div>
+
+        <details class="ladder" id="layout-box">
+          <summary>Макет отчёта <small>какие блоки выводить, шаблон заголовка, подписи колонок</small></summary>
+          <div class="grid" style="margin-top:10px">
+            <label>Готовый макет
+              <div class="row"><select id="l-preset"></select><button class="btn ghost" id="l-reset" type="button" title="Вернуть макет школы № 300">↺</button></div>
+            </label>
+            <fieldset class="opts" style="grid-column: span 3">
+              <legend>Блоки</legend>
+              <label class="chk"><input type="checkbox" id="l-showTitle" /> Заголовок</label>
+              <label class="chk"><input type="checkbox" id="l-showVariant" /> Цифра варианта</label>
+              <label class="chk"><input type="checkbox" id="l-showInfo" /> Участвовали / отсутствовали и даты</label>
+              <label class="chk"><input type="checkbox" id="l-showAvg" /> Сред.балл</label>
+              <label class="chk"><input type="checkbox" id="l-showPct" /> Процентный показатель</label>
+              <label class="chk"><input type="checkbox" id="l-showCounts" /> Количество «5» / «4»</label>
+              <label class="chk"><input type="checkbox" id="l-showEff" /> Эффективность знаний</label>
+              <label class="chk"><input type="checkbox" id="l-showSignature" /> Подпись учителя</label>
+              <label class="chk"><input type="checkbox" id="l-showNote" /> Примечание</label>
+              <label class="chk"><input type="checkbox" id="l-showChart" /> Диаграмма</label>
+            </fieldset>
+            <label class="full">Шаблон заголовка <small>подстановки: {школа} {вид} {номер} {предмет} {группа} {класс} {год} {учитель}</small>
+              <textarea id="l-title" rows="2"></textarea>
+            </label>
+            <label class="full">Заголовок диаграммы <input id="l-chart-title" /></label>
+            <label>Колонка учеников <input id="l-name" /></label>
+            <label>Общий балл <input id="l-total" /></label>
+            <label>Процент <input id="l-percent" /></label>
+            <label>Оценка <input id="l-grade" /></label>
+            <label class="full">Подпись учителя (начало строки) <input id="l-signature" /></label>
+          </div>
+        </details>
       </section>
 
       <section class="card" id="sec-preview">

@@ -62,6 +62,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   const L = layoutFor(r);
   const sheetRef = `'${ws.name.replace(/'/g, "''")}'`;
   const A = colLetter;
+  const Ly = r.layout;
 
   // ширины колонок
   ws.getColumn(1).width = 3.5;
@@ -74,28 +75,36 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
 
   // строки 1–3: шапка
   const titleEnd = Math.max(L.total - 1, 8);
-  ws.mergeCells(1, 1, 1, titleEnd);
-  const t = ws.getCell(1, 1);
-  t.value = r.title;
-  t.font = { ...font, size: 18, bold: true };
-  t.alignment = center;
-  let width = 0;
-  for (let c = 1; c <= titleEnd; c++) width += ws.getColumn(c).width ?? 8;
-  ws.getRow(1).height = titleHeight(r.title, width);
+  if (Ly.showTitle) {
+    ws.mergeCells(1, 1, 1, titleEnd);
+    const t = ws.getCell(1, 1);
+    t.value = r.title;
+    t.font = { ...font, size: 18, bold: true };
+    t.alignment = center;
+    let width = 0;
+    for (let c = 1; c <= titleEnd; c++) width += ws.getColumn(c).width ?? 8;
+    ws.getRow(1).height = titleHeight(r.title, width);
+  } else {
+    ws.getRow(1).height = 9;
+  }
 
   const dateStart = 5 + (r.absentColumns ? 2 : 0);
-  ws.getCell(2, 1).value = `Участвовали: ${r.participants}`;
-  ws.getCell(2, 1).font = { ...font, bold: true };
-  ws.mergeCells(2, dateStart, 2, L.total);
-  ws.getCell(2, dateStart).value = `дата проведение ${r.kind}     ${r.date ? r.date + 'г' : ''}`;
-  ws.getCell(2, dateStart).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
-  ws.getRow(2).height = 39;
-  ws.getCell(3, 1).value = `Отсутствовали: ${r.absent}`;
-  ws.getCell(3, 1).font = { ...font, bold: true };
-  ws.mergeCells(3, dateStart, 3, L.total);
-  ws.getCell(3, dateStart).value = `Дата внесения в emaktab.uz:  ${r.dateEntered ? r.dateEntered + 'г' : ''}`;
-  ws.getCell(3, dateStart).alignment = { horizontal: 'left', vertical: 'middle' };
-  ws.getRow(3).height = 31.5;
+  if (Ly.showInfo) {
+    ws.getCell(2, 1).value = `Участвовали: ${r.participants}`;
+    ws.getCell(2, 1).font = { ...font, bold: true };
+    ws.mergeCells(2, dateStart, 2, L.total);
+    ws.getCell(2, dateStart).value = `дата проведение ${r.kind}     ${r.date ? r.date + 'г' : ''}`;
+    ws.getCell(2, dateStart).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+    ws.getRow(2).height = 39;
+    ws.getCell(3, 1).value = `Отсутствовали: ${r.absent}`;
+    ws.getCell(3, 1).font = { ...font, bold: true };
+    ws.mergeCells(3, dateStart, 3, L.total);
+    ws.getCell(3, dateStart).value = `Дата внесения в emaktab.uz:  ${r.dateEntered ? r.dateEntered + 'г' : ''}`;
+    ws.getCell(3, dateStart).alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getRow(3).height = 31.5;
+  } else {
+    ws.getRow(2).height = 9; ws.getRow(3).height = 9;
+  }
 
   // строки 5–6: заголовки таблицы
   const H1 = 5, H2 = 6;
@@ -106,7 +115,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
     cell.alignment = center;
   };
   head(1, 1, '№');
-  head(2, 2, 'Фамилия имя ученика');
+  head(2, 2, Ly.labels.name);
   if (L.reason) { head(L.reason, L.reason, 'Причина отсутствия'); head(L.date!, L.date!, `Дата сдачи ${r.kind}а`); }
   let c = L.scoreStart;
   r.tasks.forEach((task, ti) => {
@@ -116,9 +125,9 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
     cols.forEach((col, i) => { const cell = ws.getCell(H2, c + i); cell.value = col.header; cell.alignment = center; });
     c += cols.length;
   });
-  head(L.total, L.total, 'Общий балл');
-  head(L.percent, L.percent, 'В%');
-  head(L.grade, L.grade, 'Оценивание');
+  head(L.total, L.total, Ly.labels.total);
+  head(L.percent, L.percent, Ly.labels.percent);
+  head(L.grade, L.grade, Ly.labels.grade);
   // с названиями заданий/критериев шапке нужно больше места
   const hasTitles = r.tasks.some((t) => t.title?.trim());
   const hasLabels = r.tasks.some((t) => t.parts.some((p) => p.label?.trim()));
@@ -160,49 +169,61 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   const lastRow = first + r.rows.length - 1;
   const N = r.participants || 1;
 
-  // итоги
-  const avgRow = lastRow + 1, pctRow = avgRow + 1, c5Row = pctRow + 1, c4Row = c5Row + 1, effRow = c4Row + 1;
-  ws.getCell(avgRow, 2).value = 'Сред.балл:';
-  for (let cc = L.scoreStart; cc <= L.total; cc++) {
-    const ci = cc - L.scoreStart;
-    const cell = ws.getCell(avgRow, cc);
-    cell.value = { formula: `SUM(${scoreRange(cc, first, lastRow)})/${N}`, result: cc === L.total ? r.avgTotal : r.avg[ci] };
-    cell.numFmt = '0.00';
+  // итоги — только включённые в макете строки
+  let next = lastRow + 1;
+  const avgRow = Ly.showAvg ? next++ : 0, pctRow = Ly.showPct ? next++ : 0;
+  const c5Row = Ly.showCounts ? next++ : 0, c4Row = Ly.showCounts ? next++ : 0, effRow = Ly.showEff ? next++ : 0;
+  const gradeRange = scoreRange(L.grade, first, lastRow);
+  if (avgRow) {
+    ws.getCell(avgRow, 2).value = 'Сред.балл:';
+    for (let cc = L.scoreStart; cc <= L.total; cc++) {
+      const ci = cc - L.scoreStart;
+      const cell = ws.getCell(avgRow, cc);
+      cell.value = { formula: `SUM(${scoreRange(cc, first, lastRow)})/${N}`, result: cc === L.total ? r.avgTotal : r.avg[ci] };
+      cell.numFmt = '0.00';
+    }
+    ws.getCell(avgRow, L.percent).value = { formula: `${A(L.total)}${avgRow}/${r.max}`, result: r.max ? r.avgTotal / r.max : 0 };
+    ws.getCell(avgRow, L.percent).numFmt = '0%';
+    ws.getCell(avgRow, L.grade).value = { formula: gradeFormula(`${A(L.percent)}${avgRow}`, r.thresholds), result: 0 };
   }
-  ws.getCell(avgRow, L.percent).value = { formula: `${A(L.total)}${avgRow}/${r.max}`, result: r.max ? r.avgTotal / r.max : 0 };
-  ws.getCell(avgRow, L.percent).numFmt = '0%';
-  ws.getCell(avgRow, L.grade).value = { formula: gradeFormula(`${A(L.percent)}${avgRow}`, r.thresholds), result: 0 };
-
-  ws.getCell(pctRow, 2).value = 'Процентный показатель';
-  for (let cc = L.scoreStart; cc <= L.total; cc++) {
-    const ci = cc - L.scoreStart;
-    const max = cc === L.total ? r.max : r.columns[ci].max;
-    const cell = ws.getCell(pctRow, cc);
-    cell.value = { formula: `${A(cc)}${avgRow}/${max || 1}`, result: max ? (cc === L.total ? r.avgTotal : r.avg[ci]) / max : 0 };
-    cell.numFmt = '0%';
+  if (pctRow) {
+    ws.getCell(pctRow, 2).value = 'Процентный показатель';
+    for (let cc = L.scoreStart; cc <= L.total; cc++) {
+      const ci = cc - L.scoreStart;
+      const max = cc === L.total ? r.max : r.columns[ci].max;
+      const cell = ws.getCell(pctRow, cc);
+      cell.value = { formula: `SUM(${scoreRange(cc, first, lastRow)})/${N}/${max || 1}`, result: max ? (cc === L.total ? r.avgTotal : r.avg[ci]) / max : 0 };
+      cell.numFmt = '0%';
+    }
   }
-  ws.getCell(c5Row, 2).value = 'Количество - “5”';
-  ws.getCell(c5Row, L.scoreStart).value = { formula: `COUNTIF(${scoreRange(L.grade, first, lastRow)},5)`, result: r.count5 };
-  ws.getCell(c4Row, 2).value = 'Количество - “4”';
-  ws.getCell(c4Row, L.scoreStart).value = { formula: `COUNTIF(${scoreRange(L.grade, first, lastRow)},4)`, result: r.count4 };
-  ws.getCell(effRow, 2).value = 'Эффективность знаний';
-  ws.getCell(effRow, 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN } };
-  const eff = ws.getCell(effRow, L.percent);
-  eff.value = { formula: `(${A(L.scoreStart)}${c5Row}+${A(L.scoreStart)}${c4Row})/${N}`, result: r.efficiency };
-  eff.numFmt = '0%';
-  eff.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN } };
-  for (let rr = avgRow; rr <= effRow; rr++) for (let cc = 1; cc <= L.last; cc++) {
+  if (c5Row) {
+    ws.getCell(c5Row, 2).value = 'Количество - “5”';
+    ws.getCell(c5Row, L.scoreStart).value = { formula: `COUNTIF(${gradeRange},5)`, result: r.count5 };
+    ws.getCell(c4Row, 2).value = 'Количество - “4”';
+    ws.getCell(c4Row, L.scoreStart).value = { formula: `COUNTIF(${gradeRange},4)`, result: r.count4 };
+  }
+  if (effRow) {
+    ws.getCell(effRow, 2).value = 'Эффективность знаний';
+    ws.getCell(effRow, 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN } };
+    const eff = ws.getCell(effRow, L.percent);
+    eff.value = { formula: `(COUNTIF(${gradeRange},5)+COUNTIF(${gradeRange},4))/${N}`, result: r.efficiency };
+    eff.numFmt = '0%';
+    eff.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GREEN } };
+  }
+  for (let rr = lastRow + 1; rr < next; rr++) for (let cc = 1; cc <= L.last; cc++) {
     const cell = ws.getCell(rr, cc);
     cell.border = thin; cell.font = font;
     if (cc !== 2) cell.alignment = center;
   }
 
   // подпись
-  const signRow = effRow + 2;
-  ws.getCell(signRow, 1).value = `Фамилия учителя-предметника: ${r.teacherShort}__________________`;
-  ws.getCell(signRow, 1).font = font;
-  ws.getCell(signRow + 1, 4).value = 'Подпись ';
-  ws.getCell(signRow + 1, 4).font = font;
+  const signRow = next + 1;
+  if (Ly.showSignature) {
+    ws.getCell(signRow, 1).value = `${Ly.labels.signature} ${r.teacherShort}__________________`;
+    ws.getCell(signRow, 1).font = font;
+    ws.getCell(signRow + 1, 4).value = 'Подпись ';
+    ws.getCell(signRow + 1, 4).font = font;
+  }
 
   ws.pageSetup = { orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
   ws.views = [{ showGridLines: true }];
@@ -210,8 +231,8 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   // фигуры: фиолетовая цифра варианта справа от заголовка и блок «Примечание» под подписью
   const shapes: DrawingShape[] = [];
   const variant = s.variantLabel.trim() || (r.absentColumns ? '2' : '1');
-  shapes.push({ kind: 'variant', text: variant, anchor: { fromCol: titleEnd, fromRow: 0, toCol: L.last + 1, toRow: 1 } });
-  const noteLines = s.noteText.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  if (Ly.showVariant && Ly.showTitle) shapes.push({ kind: 'variant', text: variant, anchor: { fromCol: titleEnd, fromRow: 0, toCol: L.last + 1, toRow: 1 } });
+  const noteLines = Ly.showNote ? s.noteText.split(/\r?\n/).map((x) => x.trim()).filter(Boolean) : [];
   if (noteLines.length) {
     shapes.push({ kind: 'note', lines: noteLines, anchor: { fromCol: 0, fromRow: signRow + 1, toCol: L.last + 1, toRow: signRow + 7 } });
   }
@@ -238,6 +259,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
     },
     anchor: { fromCol: 0, fromRow: chartTop - 1, toCol: chartRight, toRow: chartTop - 1 + 26 },
     shapes,
+    noChart: !Ly.showChart,
   };
 }
 

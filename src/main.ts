@@ -7,6 +7,7 @@ import {
 } from './core/structure.ts';
 import { generateLadder, ladderErrors, ladderFits, fillLadderGaps, type Ladder } from './core/ladder.ts';
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
+import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
 import type { ClassReport, JournalClass, Preset, Settings, Structure } from './core/types.ts';
 
@@ -29,6 +30,7 @@ function defaults(): Settings {
     fontName: 'Aptos Narrow',
     variantLabel: '', noteText: NOTE_DEFAULT,
     ladders: {},
+    layout: mergeLayout(DEFAULT_LAYOUT, {}),
   };
 }
 
@@ -42,7 +44,7 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(LS);
     if (raw) {
       const j = JSON.parse(raw) as Partial<Settings>;
-      const s: Settings = { ...d, ...j, thresholds: { ...d.thresholds, ...(j.thresholds ?? {}) }, ladders: j.ladders ?? {} };
+      const s: Settings = { ...d, ...j, thresholds: { ...d.thresholds, ...(j.thresholds ?? {}) }, ladders: j.ladders ?? {}, layout: mergeLayout(DEFAULT_LAYOUT, j.layout) };
       if (!Array.isArray(s.presets) || !s.presets.length) { s.presets = d.presets; s.presetId = d.presetId; }
       if (!s.presets.some((p) => p.id === s.presetId)) s.presetId = s.presets[0].id;
       s.structure = cloneStructure(s.presets.find((p) => p.id === s.presetId)!.structure);
@@ -223,6 +225,7 @@ function renderStructureEditor(): void {
       </div>
       <div class="task-head">
         <label class="task-title">Название в шапке (необязательно) <input type="text" data-f="title" value="${h(t.title ?? '')}" placeholder="например: Тест / Практическая работа" /></label>
+        <label class="task-quick">Критерии быстро <input type="text" data-f="tquick" value="${h(t.parts.length ? t.parts.map((p) => p.max).join('+') : String(t.max))}" placeholder="5+5+20+10" title="Баллы критериев через «+»; одно число — задание без критериев" /></label>
         ${t.parts.length ? '' : `<label class="task-points">Баллы <input type="number" data-f="tmax" min="0" value="${t.max}" /></label><label class="task-points">Цель % <input type="number" data-f="ttarget" min="0" max="100" value="${t.target ?? ''}" placeholder="100" title="Целевой процент выполнения (для раскидки «по целям»)" /></label>`}
       </div>
       <div class="parts">${parts}<button class="mini" type="button" data-act="add-part">＋ критерий</button></div>
@@ -240,6 +243,7 @@ function onStructInput(t: HTMLInputElement): void {
   const ti = Number(card.dataset.t);
   const task = st.tasks[ti]; if (!task) return;
   const f = t.dataset.f;
+  if (f === 'tquick') return; // обрабатывается по change
   if (f === 'title') task.title = t.value;
   else if (f === 'tmax') task.max = Math.max(0, Math.round(Number(t.value)) || 0);
   else if (f === 'ttarget') task.target = t.value.trim() === '' ? undefined : Math.min(100, Math.max(0, Number(t.value) || 0));
@@ -348,12 +352,14 @@ function renderTabs(): void {
 
 function renderFootInto(el: HTMLElement, r: ClassReport): void {
   const lead = r.absentColumns ? '<td></td><td></td>' : '';
-  el.innerHTML = `
-    <tr><td></td><td class="lbl">Сред.балл:</td>${lead}${r.avg.map((a) => `<td>${fix(a)}</td>`).join('')}<td>${fix(r.avgTotal)}</td><td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td></tr>
-    <tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td>${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>
-    <tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td><td colspan="${r.columns.length + 2}"></td></tr>
-    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td><td colspan="${r.columns.length + 2}"></td></tr>
-    <tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${r.columns.length + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`;
+  const Ly = r.layout;
+  const rows: string[] = [];
+  if (Ly.showAvg) rows.push(`<tr><td></td><td class="lbl">Сред.балл:</td>${lead}${r.avg.map((a) => `<td>${fix(a)}</td>`).join('')}<td>${fix(r.avgTotal)}</td><td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td></tr>`);
+  if (Ly.showPct) rows.push(`<tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td>${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>`);
+  if (Ly.showCounts) rows.push(`<tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td><td colspan="${r.columns.length + 2}"></td></tr>
+    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td><td colspan="${r.columns.length + 2}"></td></tr>`);
+  if (Ly.showEff) rows.push(`<tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${r.columns.length + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`);
+  el.innerHTML = rows.join('');
 }
 
 function renderStats(r: ClassReport): string {
@@ -412,6 +418,7 @@ function renderPreview(): void {
   const own = cs.presetId ? presetById(cs.presetId) : undefined;
   const info = `<div class="info">Разбаловка класса: <b>${h(own ? own.name : currentPreset().name)}</b> · ${h(structureToText(structureFor(cs)))}${own ? ' (своя для этого класса — меняется в списке классов)' : ' (общая)'}</div>`;
 
+  const Ly = r.layout;
   const extra = r.absentColumns ? `<th rowspan="2">Причина отсутствия</th><th rowspan="2">Дата сдачи ${r.kind}а</th>` : '';
   let head1 = '', head2 = '';
   r.tasks.forEach((t, ti) => {
@@ -432,17 +439,17 @@ function renderPreview(): void {
   const variant = S().variantLabel.trim() || (r.absentColumns ? '2' : '1');
 
   box.innerHTML = `${mismatch}${info}${renderStats(r)}<div class="sheet">
-    <div class="title-row"><p class="title">${h(r.title)}</p><span class="variant" title="Цифра варианта формы">${h(variant)}</span></div>
-    <div class="hdr"><b>Участвовали: ${r.participants}</b><span>дата проведение ${r.kind}: ${h(r.date ?? '')}</span>
+    ${Ly.showTitle ? `<div class="title-row"><p class="title">${h(r.title)}</p>${Ly.showVariant ? `<span class="variant" title="Цифра варианта формы">${h(variant)}</span>` : ''}</div>` : ''}
+    ${Ly.showInfo ? `<div class="hdr"><b>Участвовали: ${r.participants}</b><span>дата проведение ${r.kind}: ${h(r.date ?? '')}</span>
       <b>Отсутствовали: ${r.absent}</b><span>Дата внесения в emaktab.uz: ${h(r.dateEntered ?? '')}</span>
-      ${r.absentNames.length ? `<span class="absent">Без балла: ${h(r.absentNames.join(', '))}</span>` : ''}</div>
+      ${r.absentNames.length ? `<span class="absent">Без балла: ${h(r.absentNames.join(', '))}</span>` : ''}</div>` : ''}
     <table class="rep"><thead>
-      <tr><th rowspan="2">№</th><th rowspan="2">Фамилия имя ученика</th>${extra}${head1}<th rowspan="2">Общий балл</th><th rowspan="2">В%</th><th rowspan="2">Оценивание</th></tr>
+      <tr><th rowspan="2">№</th><th rowspan="2">${h(Ly.labels.name)}</th>${extra}${head1}<th rowspan="2">${h(Ly.labels.total)}</th><th rowspan="2">${h(Ly.labels.percent)}</th><th rowspan="2">${h(Ly.labels.grade)}</th></tr>
       <tr>${head2}</tr></thead>
       <tbody>${body}</tbody><tfoot>${footEl.innerHTML}</tfoot></table>
-    <p class="sign">Фамилия учителя-предметника: ${h(r.teacherShort)}__________________ &nbsp;&nbsp;&nbsp; Подпись ________</p>
-    ${S().noteText.trim() ? `<div class="note">${S().noteText.trim().split('\n').map((l, i) => (i === 0 ? `<b>${h(l)}</b>` : `<div>${h(l)}</div>`)).join('')}</div>` : ''}
-  </div>${renderChart(r)}`;
+    ${Ly.showSignature ? `<p class="sign">${h(Ly.labels.signature)} ${h(r.teacherShort)}__________________ &nbsp;&nbsp;&nbsp; Подпись ________</p>` : ''}
+    ${Ly.showNote && S().noteText.trim() ? `<div class="note">${S().noteText.trim().split('\n').map((l, i) => (i === 0 ? `<b>${h(l)}</b>` : `<div>${h(l)}</div>`)).join('')}</div>` : ''}
+  </div>${Ly.showChart ? renderChart(r) : ''}`;
 }
 
 /** Правка балла в ячейке: пересчитать строку и итоги без перерисовки всей таблицы. */
@@ -584,6 +591,21 @@ function bindSettings(): void {
   set('s-t5', Math.round(s.thresholds.five * 100)); set('s-t4', Math.round(s.thresholds.four * 100)); set('s-t3', Math.round(s.thresholds.three * 100));
   set('s-absent', s.includeAbsent); set('s-absentcols', s.absentColumns); set('s-dates', s.showDates); set('s-charttotal', s.chartIncludeTotal);
   set('s-variant', s.variantLabel); set('s-note', s.noteText);
+  const setLayoutFields = () => {
+    const l = s.layout;
+    for (const k of ['showTitle', 'showVariant', 'showInfo', 'showAvg', 'showPct', 'showCounts', 'showEff', 'showSignature', 'showNote', 'showChart'] as const) ($('l-' + k) as HTMLInputElement).checked = l[k];
+    set('l-title', l.titleTemplate); set('l-chart-title', l.chartTitleTemplate);
+    set('l-name', l.labels.name); set('l-total', l.labels.total); set('l-percent', l.labels.percent); set('l-grade', l.labels.grade); set('l-signature', l.labels.signature);
+  };
+  ($('l-preset') as HTMLSelectElement).innerHTML = '<option value="">выбрать…</option>' + LAYOUT_PRESETS.map((p, i) => `<option value="${i}">${h(p.name)}</option>`).join('');
+  setLayoutFields();
+  $('l-preset').addEventListener('change', () => {
+    const i = Number(($('l-preset') as HTMLSelectElement).value);
+    if (!Number.isInteger(i) || !LAYOUT_PRESETS[i]) return;
+    s.layout = mergeLayout(DEFAULT_LAYOUT, LAYOUT_PRESETS[i].patch); setLayoutFields(); ($('l-preset') as HTMLSelectElement).value = '';
+    saveSettings(); rebuild(); render();
+  });
+  $('l-reset').addEventListener('click', () => { s.layout = mergeLayout(DEFAULT_LAYOUT, {}); setLayoutFields(); saveSettings(); rebuild(); render(); });
 
   const apply = () => {
     const v = (id: string) => ($(id) as HTMLInputElement).value;
@@ -594,6 +616,13 @@ function bindSettings(): void {
     s.thresholds = { five: Number(v('s-t5')) / 100, four: Number(v('s-t4')) / 100, three: Number(v('s-t3')) / 100 };
     s.includeAbsent = b('s-absent'); s.absentColumns = b('s-absentcols'); s.showDates = b('s-dates'); s.chartIncludeTotal = b('s-charttotal');
     s.variantLabel = v('s-variant').trim(); s.noteText = v('s-note');
+    s.layout = {
+      ...s.layout,
+      showTitle: b('l-showTitle'), showVariant: b('l-showVariant'), showInfo: b('l-showInfo'), showAvg: b('l-showAvg'), showPct: b('l-showPct'),
+      showCounts: b('l-showCounts'), showEff: b('l-showEff'), showSignature: b('l-showSignature'), showNote: b('l-showNote'), showChart: b('l-showChart'),
+      titleTemplate: v('l-title').trim() || DEFAULT_LAYOUT.titleTemplate, chartTitleTemplate: v('l-chart-title').trim() || DEFAULT_LAYOUT.chartTitleTemplate,
+      labels: { name: v('l-name').trim() || DEFAULT_LAYOUT.labels.name, total: v('l-total').trim() || DEFAULT_LAYOUT.labels.total, percent: v('l-percent').trim() || DEFAULT_LAYOUT.labels.percent, grade: v('l-grade').trim() || DEFAULT_LAYOUT.labels.grade, signature: v('l-signature').trim() },
+    };
     saveSettings();
     rebuild();
     render();
@@ -647,6 +676,28 @@ function bindSettings(): void {
 
   // редактор структуры
   $('struct-editor').addEventListener('input', (e) => { const t = e.target as HTMLInputElement; if (t.matches('input[data-f]')) onStructInput(t); });
+  $('struct-editor').addEventListener('change', (e) => { // быстрый ввод критериев одного задания
+    const t = e.target as HTMLInputElement; if (!t.matches('input[data-f="tquick"]')) return;
+    const st = cloneStructure(S().structure);
+    const ti = Number((t.closest('.task-card') as HTMLElement).dataset.t);
+    const task = st.tasks[ti]; if (!task) return;
+    const nums = t.value.split(/[+\s,;/]+/).map(Number).filter((n) => Number.isFinite(n) && n >= 0);
+    if (!nums.length) { renderStructureEditor(); return; }
+    if (nums.length === 1) { task.max = nums[0]; task.parts = []; }
+    else task.parts = nums.map((n, i) => ({ label: task.parts[i]?.label ?? '', target: task.parts[i]?.target, max: n }));
+    setStructure(st); rebuild(); render();
+  });
+  $('struct-editor').addEventListener('keydown', (e) => { // Enter в баллах критерия — добавить следующий
+    const t = e.target as HTMLInputElement;
+    if (e.key !== 'Enter' || !t.matches('input[data-f="pmax"]')) return;
+    e.preventDefault();
+    const card = t.closest('.task-card') as HTMLElement;
+    const btn = card.querySelector('button[data-act="add-part"]') as HTMLElement | null;
+    if (!btn) return;
+    onStructClick(btn);
+    const inputs = document.querySelectorAll(`.task-card[data-t="${card.dataset.t}"] input[data-f="pmax"]`);
+    (inputs[inputs.length - 1] as HTMLInputElement | undefined)?.focus();
+  });
   $('struct-editor').addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button[data-act]') as HTMLElement | null; if (b) onStructClick(b); });
 
   $('s-reseed').addEventListener('click', () => { ($('s-seed') as HTMLInputElement).value = String(Math.floor(Math.random() * 1e6)); apply(); });

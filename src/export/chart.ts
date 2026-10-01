@@ -119,9 +119,9 @@ function noteShapeXml(a: ChartAnchor, lines: string[], id: number): string {
 }
 
 /** drawingN.xml: диаграмма + дополнительные фигуры; у каждого cNvPr уникальный id. */
-export function drawingXml(a: ChartAnchor, chartRel = 'rId1', shapes: DrawingShape[] = []): string {
+export function drawingXml(a: ChartAnchor, chartRel = 'rId1', shapes: DrawingShape[] = [], noChart = false): string {
   let id = 2;
-  const frame = `<xdr:twoCellAnchor>${anchorXml(a)}<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${id}" name="Диаграмма ${id}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="${NS_C}"><c:chart xmlns:c="${NS_C}" xmlns:r="${NS_R}" r:id="${chartRel}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`;
+  const frame = noChart ? '' : `<xdr:twoCellAnchor>${anchorXml(a)}<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${id}" name="Диаграмма ${id}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="${NS_C}"><c:chart xmlns:c="${NS_C}" xmlns:r="${NS_R}" r:id="${chartRel}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`;
   const extra = shapes.map((sh) => {
     id++;
     return sh.kind === 'variant' ? variantShapeXml(sh.anchor, sh.text, id) : noteShapeXml(sh.anchor, sh.lines, id);
@@ -130,7 +130,7 @@ export function drawingXml(a: ChartAnchor, chartRel = 'rId1', shapes: DrawingSha
 <xdr:wsDr xmlns:xdr="${NS_XDR}" xmlns:a="${NS_A}">${extra}${frame}</xdr:wsDr>`;
 }
 
-export interface ChartJob { sheetId: number; spec: ChartSpec; anchor: ChartAnchor; shapes: DrawingShape[] }
+export interface ChartJob { sheetId: number; spec: ChartSpec; anchor: ChartAnchor; shapes: DrawingShape[]; noChart?: boolean }
 
 /** Дописать диаграммы в готовый xlsx (ExcelJS их не умеет): drawing + chart + связи + типы содержимого. */
 export async function injectCharts(xlsx: ArrayBuffer | Uint8Array, jobs: ChartJob[]): Promise<Uint8Array> {
@@ -156,10 +156,11 @@ export async function injectCharts(xlsx: ArrayBuffer | Uint8Array, jobs: ChartJo
     if (!/xmlns:r=/.test(sheet.slice(0, 600))) sheet = sheet.replace('<worksheet ', `<worksheet xmlns:r="${NS_R}" `);
     zip.file(sheetPath, sheet);
 
-    zip.file(`xl/drawings/drawing${k}.xml`, drawingXml(job.anchor, 'rId1', job.shapes));
-    zip.file(`xl/drawings/_rels/drawing${k}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart${k}.xml"/></Relationships>`);
-    zip.file(`xl/charts/chart${k}.xml`, chartXml(job.spec));
-    ct = ct.replace('</Types>', `<Override PartName="/xl/drawings/drawing${k}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/><Override PartName="/xl/charts/chart${k}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/></Types>`);
+    zip.file(`xl/drawings/drawing${k}.xml`, drawingXml(job.anchor, 'rId1', job.shapes, !!job.noChart));
+    const chartRel = job.noChart ? '' : `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart${k}.xml"/>`;
+    zip.file(`xl/drawings/_rels/drawing${k}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${chartRel}</Relationships>`);
+    if (!job.noChart) zip.file(`xl/charts/chart${k}.xml`, chartXml(job.spec));
+    ct = ct.replace('</Types>', `<Override PartName="/xl/drawings/drawing${k}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>${job.noChart ? '' : `<Override PartName="/xl/charts/chart${k}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`}</Types>`);
   }
   zip.file('[Content_Types].xml', ct);
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });

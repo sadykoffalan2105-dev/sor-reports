@@ -7,6 +7,7 @@ import { generateLadder, ladderErrors, fillLadderGaps } from '../src/core/ladder
 import { distribute } from '../src/core/distribute.ts';
 import { exportWorkbook, fileNameFor } from '../src/export/xlsx.ts';
 import type { Settings } from '../src/core/types.ts';
+import { DEFAULT_LAYOUT } from '../src/core/layout.ts';
 
 const file = process.argv[2] ?? 'samples/5 С-Технология-10.03.2026.xls';
 const buf = readFileSync(file);
@@ -31,7 +32,7 @@ const settings: Settings = {
   strategy: 'ladder', seed: 1,
   thresholds: { five: 0.86, four: 0.66, three: 0.3 },
   includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
-  fontName: 'Aptos Narrow', ladders: {},
+  fontName: 'Aptos Narrow', ladders: {}, layout: DEFAULT_LAYOUT,
   variantLabel: '',
   noteText: 'Примечание\n- Оценки БСБ должны быть внесены в emaktab.uz в течение 5–7 дней.\n- Ученики, получившие оценку «2» (0–29 %), должны быть привлечены учителем предмета к дополнительным занятиям после уроков.',
 };

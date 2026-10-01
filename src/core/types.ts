@@ -1,4 +1,5 @@
 /** Общие типы приложения. */
+import type { ReportLayout } from './layout.ts';
 
 export type Kind = 'СОР' | 'СОЧ';
 
@@ -72,6 +73,8 @@ export interface Settings {
   variantLabel: string;
   /** Текст блока «Примечание» под подписью (пусто — блок не выводится). Строки разделяются \n. */
   noteText: string;
+  /** Макет отчёта: блоки, шаблон заголовка, подписи колонок. */
+  layout: ReportLayout;
   /** Отредактированные лестницы баллов, ключ — текст разбаловки («5; 5+5+20+10; 5»). */
   ladders: Record<string, number[][]>;
 }
@@ -124,4 +127,5 @@ export interface ClassReport {
   thresholds: Thresholds;
   absentColumns: boolean;
   showDates: boolean;
+  layout: ReportLayout;
 }

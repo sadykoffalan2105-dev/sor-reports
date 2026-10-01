@@ -74,6 +74,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .task-card .task-sum { color: var(--muted); font-size: 13px; }
 .task-card .task-head .sp { flex: 1; }
 .task-card .task-title { flex: 1 1 220px; }
+.task-card .task-quick { flex: 0 1 200px; }
+.task-card .task-quick input { width: 100%; font-family: ui-monospace, Consolas, monospace; }
 .task-card .task-title input { width: 100%; }
 .task-card .task-points { width: 84px; }
 .task-card .task-points input { width: 100%; }

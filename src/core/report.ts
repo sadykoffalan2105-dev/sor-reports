@@ -2,6 +2,7 @@ import type { ClassReport, JournalClass, ReportRow, Settings } from './types.ts'
 import { flattenColumns } from './structure.ts';
 import { distribute, distributeTargets, gradeFor, makeRng } from './distribute.ts';
 import { generateLadder, ladderFits, type Ladder } from './ladder.ts';
+import { fillTemplate } from './layout.ts';
 
 /** Хеш строки → 32-битное число (для стабильного сида на ученика). */
 function hash(s: string): number {
@@ -16,11 +17,15 @@ export function sheetNameFor(cls: JournalClass): string {
   return cls.group === 'девочки' ? `${base} Д` : base;
 }
 
+/** Переменные для шаблонов заголовка. */
+export function titleVars(cls: JournalClass, s: Settings): Record<string, string> {
+  return {
+    'школа': s.school, 'вид': s.kind, 'номер': String(s.number), 'предмет': cls.subject || 'Предмет',
+    'группа': cls.group ?? '', 'класс': cls.className, 'год': cls.year || s.year, 'учитель': s.teacherShort,
+  };
+}
 export function buildTitle(cls: JournalClass, s: Settings): string {
-  const group = cls.group ? `${cls.group} ` : '';
-  const subject = cls.subject || 'Предмет';
-  const year = cls.year || s.year;
-  return `${s.school} ОТЧЁТНЫЕ РЕЗУЛЬТАТЫ проверки заданий ${s.kind}-${s.number} по предмету «${subject}»  ${group}учащихся ${cls.className} класса за ${year} учебный год`;
+  return fillTemplate(s.layout.titleTemplate, titleVars(cls, s));
 }
 
 /** «13.02» + учебный год «2025–2026» → «13.02.2026» (сентябрь–декабрь — первый год). */
@@ -65,13 +70,13 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     rows.push(row);
   });
 
-  const group = cls.group ? `${cls.group} ` : '';
   const subject = cls.subject || 'Предмет';
   const report: ClassReport = {
     classId: cls.id,
     sheetName: sheetNameFor(cls),
     title: buildTitle(cls, s),
-    chartTitle: `${s.kind}-${s.number} по предмету «${subject}»  ${group}учащихся ${cls.className} класса`,
+    chartTitle: fillTemplate(s.layout.chartTitleTemplate, titleVars(cls, s)),
+    layout: s.layout,
     className: cls.className, group: cls.group, subject,
     kind: s.kind, number: s.number,
     date: cls.dateHeld || (s.showDates ? fullDate(a?.date, cls.year || s.year) : undefined),
