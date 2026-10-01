@@ -1,6 +1,6 @@
 import type { ClassReport, JournalClass, ReportRow, Settings } from './types.ts';
 import { flattenColumns } from './structure.ts';
-import { distribute, gradeFor, makeRng } from './distribute.ts';
+import { distribute, distributeTargets, gradeFor, makeRng } from './distribute.ts';
 import { generateLadder, ladderFits, type Ladder } from './ladder.ts';
 
 /** Хеш строки → 32-битное число (для стабильного сида на ученика). */
@@ -57,7 +57,9 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     }
     const rng = makeRng((s.seed ^ hash(st.name)) >>> 0);
     const t = Math.max(0, Math.min(max, Math.round(score)));
-    const scores = rowsOf?.[t] ? rowsOf[t].slice() : distribute(score, maxes, s.strategy === 'ladder' ? 'largest' : s.strategy, rng);
+    const scores = rowsOf?.[t] ? rowsOf[t].slice()
+      : s.strategy === 'targets' ? distributeTargets(score, maxes, columns.map((c) => c.target), rng)
+      : distribute(score, maxes, s.strategy === 'ladder' ? 'largest' : s.strategy, rng);
     const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0 };
     recalcRow(row, max, s.thresholds);
     rows.push(row);
@@ -72,7 +74,8 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     chartTitle: `${s.kind}-${s.number} по предмету «${subject}»  ${group}учащихся ${cls.className} класса`,
     className: cls.className, group: cls.group, subject,
     kind: s.kind, number: s.number,
-    date: s.showDates ? fullDate(a?.date, cls.year || s.year) : undefined,
+    date: cls.dateHeld || (s.showDates ? fullDate(a?.date, cls.year || s.year) : undefined),
+    dateEntered: cls.dateEntered,
     max, columns, tasks: structure.tasks, rows,
     participants: 0, absent: absentNames.length, absentNames,
     avg: [], avgTotal: 0, count5: 0, count4: 0, efficiency: 0,

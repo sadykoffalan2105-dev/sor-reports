@@ -32,18 +32,20 @@ export interface JournalClass {
   students: Student[];
   assessments: AssessmentColumn[];
   selectedAssessment?: string; // id выбранной колонки
+  dateHeld?: string;    // дата проведения (дд.мм.гггг), введена вручную
+  dateEntered?: string; // дата внесения в emaktab
 }
 
 /** Подзадание (критерий) с максимумом баллов. */
-export interface Part { label: string; max: number }
+export interface Part { label: string; max: number; target?: number }  // target — целевой % для раскидки
 /** Задание: либо одна колонка (parts пустой), либо несколько подколонок. */
-export interface Task { title: string; parts: Part[]; max: number }
+export interface Task { title: string; parts: Part[]; max: number; target?: number }
 export interface Structure { tasks: Task[] }
 
 /** Сохранённая разбаловка с названием (например, «5 класс»). */
 export interface Preset { id: string; name: string; structure: Structure }
 
-export type Strategy = 'ladder' | 'largest' | 'proportional' | 'random';
+export type Strategy = 'ladder' | 'targets' | 'largest' | 'proportional' | 'random';
 
 export interface Thresholds { five: number; four: number; three: number }
 
@@ -81,6 +83,7 @@ export interface ScoreColumn {
   partIndex: number;     // -1 если задание без подколонок
   header: string;        // подпись в строке 6 («5 баллов») или пусто
   max: number;
+  target?: number;       // целевой % (стратегия «по целям»)
 }
 
 export interface ReportRow {
@@ -104,6 +107,7 @@ export interface ClassReport {
   kind: Kind;
   number: number;
   date?: string;
+  dateEntered?: string;
   max: number;
   columns: ScoreColumn[];
   tasks: Task[];

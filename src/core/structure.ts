@@ -14,10 +14,10 @@ export function flattenColumns(s: Structure): ScoreColumn[] {
   s.tasks.forEach((t, ti) => {
     if (t.parts.length) {
       t.parts.forEach((p, pi) =>
-        cols.push({ key: `t${ti}p${pi}`, taskIndex: ti, partIndex: pi, header: partHeader(p), max: p.max }),
+        cols.push({ key: `t${ti}p${pi}`, taskIndex: ti, partIndex: pi, header: partHeader(p), max: p.max, target: p.target }),
       );
     } else {
-      cols.push({ key: `t${ti}`, taskIndex: ti, partIndex: -1, header: '', max: t.max });
+      cols.push({ key: `t${ti}`, taskIndex: ti, partIndex: -1, header: '', max: t.max, target: t.target });
     }
   });
   return cols;
@@ -85,7 +85,7 @@ export function structureToText(s: Structure): string {
 }
 
 export function cloneStructure(s: Structure): Structure {
-  return { tasks: s.tasks.map((t) => ({ title: t.title ?? '', max: t.max, parts: t.parts.map((p) => ({ label: p.label ?? '', max: p.max })) })) };
+  return { tasks: s.tasks.map((t) => ({ title: t.title ?? '', max: t.max, target: t.target, parts: t.parts.map((p) => ({ label: p.label ?? '', max: p.max, target: p.target })) })) };
 }
 
 /** Пересчитать max заданий с критериями. */

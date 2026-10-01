@@ -1,6 +1,6 @@
 import './style.css';
 import { parseWorkbook, parseManualList, shortTeacherName } from './parse/journal.ts';
-import { buildReport, recalcRow, recalcSummary } from './core/report.ts';
+import { buildReport, recalcRow, recalcSummary, fullDate } from './core/report.ts';
 import {
   parseStructure, structureFromText, structureToText, structureMax, flattenColumns, taskHeader, taskMax,
   cloneStructure, normalizeStructure, newPresetId, builtinPresets, pointsLabel, columnName,
@@ -75,6 +75,9 @@ const h = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace
 const br = (s: string): string => h(s).replace(/\n/g, '<br>');
 const pct = (x: number): string => `${Math.round(x * 100)}%`;
 const fix = (x: number): string => (Number.isInteger(x) ? String(x) : x.toFixed(2));
+/** «13.02.2026» ↔ «2026-02-13» для <input type=date>. */
+const toIso = (d?: string): string => { const m = (d ?? '').match(/^(\d{2})\.(\d{2})\.(\d{4})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+const fromIso = (v: string): string => { const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${m[3]}.${m[2]}.${m[1]}` : ''; };
 const PALETTE = ['#4472c4', '#ed7d31', '#a5a5a5', '#ffc000', '#5b9bd5', '#70ad47', '#264478', '#9e480e', '#636363', '#997300'];
 
 const S = () => state.settings;
@@ -170,6 +173,8 @@ function renderClasses(): void {
       <div class="ctl">
         <label>Колонка <select data-act="assess">${opts}</select></label>
         <label>Разбаловка <select data-act="preset">${presetOptions(cs.presetId, true)}</select></label>
+        <label>Дата проведения <span class="row"><input type="date" data-act="dateHeld" value="${toIso(c.dateHeld)}" /><button class="btn small ghost" type="button" data-act="journal-date" title="взять дату СОР из журнала">из журнала</button></span></label>
+        <label>Внесено в emaktab <input type="date" data-act="dateEntered" value="${toIso(c.dateEntered)}" /></label>
       </div>${warn}</div>`;
   }).join('');
 }
@@ -179,6 +184,7 @@ function renderClasses(): void {
 function renderPresetBar(): void {
   ($('preset-sel') as HTMLSelectElement).innerHTML = presetOptions(S().presetId, false);
   ($('preset-del') as HTMLButtonElement).disabled = S().presets.length <= 1;
+  ($('preset-name') as HTMLInputElement).value = currentPreset().name;
 }
 
 function setStructure(st: Structure): void {
@@ -204,6 +210,7 @@ function renderStructureEditor(): void {
         <span class="idx">Критерий ${ti + 1}.${pi + 1}</span>
         <input type="text" data-f="plabel" value="${h(p.label ?? '')}" placeholder="название (в шапку)" />
         <input type="number" data-f="pmax" min="0" value="${p.max}" title="Баллы" />
+        <input type="number" data-f="ptarget" min="0" max="100" value="${p.target ?? ''}" placeholder="100%" title="Целевой процент выполнения (для раскидки «по целям»)" />
         <button class="x" type="button" data-act="del-part" title="Убрать критерий">✕</button>
       </div>`).join('');
     return `<div class="task-card" data-t="${ti}">
@@ -216,7 +223,7 @@ function renderStructureEditor(): void {
       </div>
       <div class="task-head">
         <label class="task-title">Название в шапке (необязательно) <input type="text" data-f="title" value="${h(t.title ?? '')}" placeholder="например: Тест / Практическая работа" /></label>
-        ${t.parts.length ? '' : `<label class="task-points">Баллы <input type="number" data-f="tmax" min="0" value="${t.max}" /></label>`}
+        ${t.parts.length ? '' : `<label class="task-points">Баллы <input type="number" data-f="tmax" min="0" value="${t.max}" /></label><label class="task-points">Цель % <input type="number" data-f="ttarget" min="0" max="100" value="${t.target ?? ''}" placeholder="100" title="Целевой процент выполнения (для раскидки «по целям»)" /></label>`}
       </div>
       <div class="parts">${parts}<button class="mini" type="button" data-act="add-part">＋ критерий</button></div>
     </div>`;
@@ -235,10 +242,13 @@ function onStructInput(t: HTMLInputElement): void {
   const f = t.dataset.f;
   if (f === 'title') task.title = t.value;
   else if (f === 'tmax') task.max = Math.max(0, Math.round(Number(t.value)) || 0);
-  else if (f === 'plabel' || f === 'pmax') {
+  else if (f === 'ttarget') task.target = t.value.trim() === '' ? undefined : Math.min(100, Math.max(0, Number(t.value) || 0));
+  else if (f === 'plabel' || f === 'pmax' || f === 'ptarget') {
     const pi = Number((t.closest('.part-chip') as HTMLElement).dataset.p);
     const part = task.parts[pi]; if (!part) return;
-    if (f === 'plabel') part.label = t.value; else part.max = Math.max(0, Math.round(Number(t.value)) || 0);
+    if (f === 'plabel') part.label = t.value;
+    else if (f === 'ptarget') part.target = t.value.trim() === '' ? undefined : Math.min(100, Math.max(0, Number(t.value) || 0));
+    else part.max = Math.max(0, Math.round(Number(t.value)) || 0);
   }
   setStructure(st);
   card.querySelector('[data-k="tsum"]')!.textContent = pointsLabel(taskMax(S().structure.tasks[ti]));
@@ -424,7 +434,7 @@ function renderPreview(): void {
   box.innerHTML = `${mismatch}${info}${renderStats(r)}<div class="sheet">
     <div class="title-row"><p class="title">${h(r.title)}</p><span class="variant" title="Цифра варианта формы">${h(variant)}</span></div>
     <div class="hdr"><b>Участвовали: ${r.participants}</b><span>дата проведение ${r.kind}: ${h(r.date ?? '')}</span>
-      <b>Отсутствовали: ${r.absent}</b><span>Дата внесения в emaktab.uz:</span>
+      <b>Отсутствовали: ${r.absent}</b><span>Дата внесения в emaktab.uz: ${h(r.dateEntered ?? '')}</span>
       ${r.absentNames.length ? `<span class="absent">Без балла: ${h(r.absentNames.join(', '))}</span>` : ''}</div>
     <table class="rep"><thead>
       <tr><th rowspan="2">№</th><th rowspan="2">Фамилия имя ученика</th>${extra}${head1}<th rowspan="2">Общий балл</th><th rowspan="2">В%</th><th rowspan="2">Оценивание</th></tr>
@@ -609,9 +619,7 @@ function bindSettings(): void {
     saveSettings(); rebuild(); render();
   });
   $('preset-new').addEventListener('click', () => {
-    const name = prompt('Название новой разбаловки:', `Разбаловка ${S().presets.length + 1}`);
-    if (name == null) return;
-    const p: Preset = { id: newPresetId(), name: name.trim() || 'Разбаловка', structure: parseStructure('5; 5+5+20+10; 5')! };
+    const p: Preset = { id: newPresetId(), name: `Разбаловка ${S().presets.length + 1}`, structure: parseStructure('5; 5+5+20+10; 5')! };
     S().presets.push(p); S().presetId = p.id; S().structure = cloneStructure(p.structure);
     saveSettings(); rebuild(); render();
   });
@@ -621,11 +629,10 @@ function bindSettings(): void {
     S().presets.push(p); S().presetId = p.id; S().structure = cloneStructure(p.structure);
     saveSettings(); rebuild(); render();
   });
-  $('preset-rename').addEventListener('click', () => {
-    const cur = currentPreset();
-    const name = prompt('Новое название:', cur.name);
-    if (name == null || !name.trim()) return;
-    cur.name = name.trim(); saveSettings(); render();
+  $('preset-name').addEventListener('change', () => { // переименование прямо в поле
+    const name = ($('preset-name') as HTMLInputElement).value.trim();
+    if (!name) { ($('preset-name') as HTMLInputElement).value = currentPreset().name; return; }
+    currentPreset().name = name; saveSettings(); render();
   });
   $('preset-del').addEventListener('click', () => {
     const s2 = S();
@@ -669,9 +676,22 @@ function bindEvents(): void {
     const cs = state.classes[i]; if (!cs) return;
     if (t.dataset.act === 'assess') cs.cls.selectedAssessment = t.value;
     if (t.dataset.act === 'preset') cs.presetId = t.value;
-    rebuild(i); state.active = i; render();
+    if (t.dataset.act === 'dateHeld') cs.cls.dateHeld = fromIso(t.value) || undefined;
+    if (t.dataset.act === 'dateEntered') cs.cls.dateEntered = fromIso(t.value) || undefined;
+    rebuild(i); state.active = i;
+    if (t.dataset.act === 'dateHeld' || t.dataset.act === 'dateEntered') { renderTabs(); renderPreview(); return; } // не перерисовывать карточку — не терять фокус
+    render();
   });
   $('classes').addEventListener('click', (e) => {
+    const jd = (e.target as HTMLElement).closest('[data-act="journal-date"]');
+    if (jd) {
+      const i = Number(jd.closest('.cls')?.getAttribute('data-i'));
+      const cs = state.classes[i]; if (!cs) return;
+      const a = cs.cls.assessments.find((x) => x.id === cs.cls.selectedAssessment) ?? cs.cls.assessments[0];
+      const d = fullDate(a?.date, cs.cls.year || S().year);
+      if (!d) { alert('В журнале нет даты для этой колонки.'); return; }
+      cs.cls.dateHeld = d; rebuild(i); state.active = i; render(); return;
+    }
     const b = (e.target as HTMLElement).closest('[data-act="remove"]'); if (!b) return;
     const i = Number(b.closest('.cls')?.getAttribute('data-i'));
     state.classes.splice(i, 1); state.active = Math.min(state.active, Math.max(0, state.classes.length - 1)); render();

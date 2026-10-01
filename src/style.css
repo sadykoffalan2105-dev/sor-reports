@@ -33,6 +33,8 @@ h2 { font-size: 18px; margin: 0 0 14px; display: flex; align-items: center; gap:
 .cls .meta { color: var(--muted); font-size: 13px; }
 .cls .ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; grid-column: 1 / -1; }
 .cls .ctl label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.cls .ctl input[type="date"] { width: 150px; }
+.cls .ctl .row { display: flex; gap: 4px; align-items: center; }
 .cls .warn { grid-column: 1 / -1; background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 .empty { color: var(--muted); padding: 10px 0; }
 
@@ -61,7 +63,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .sub-h { font-size: 15px; margin: 18px 0 8px; color: var(--ink); }
 .preset-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; margin-bottom: 10px; }
 .preset-bar label { min-width: 260px; flex: 1 1 260px; }
-.preset-bar .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.preset-bar .btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.preset-name { width: 200px !important; padding: 5px 8px !important; font-size: 13px; }
 .btn.accent { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .quick { display: grid; gap: 6px; margin-bottom: 10px; }
 .struct-editor { display: grid; gap: 10px; margin-bottom: 12px; }
@@ -75,7 +78,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .task-card .task-points { width: 84px; }
 .task-card .task-points input { width: 100%; }
 .parts { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
-.part-chip { display: grid; grid-template-columns: 1fr 58px 24px; gap: 4px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; background: #fff; min-width: 210px; }
+.part-chip { display: grid; grid-template-columns: 1fr 52px 56px 24px; gap: 4px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; background: #fff; min-width: 210px; }
 .part-chip .idx { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
 .part-chip input { padding: 4px 6px; font-size: 13px; }
 .part-chip input[type="number"] { text-align: center; }
@@ -160,13 +163,17 @@ table.ladder-t { border-collapse: collapse; font-size: 13px; width: 100%; }
 .sheet .hdr b { font-weight: 700; }
 .sheet .hdr .absent { color: var(--muted); font-size: 13px; grid-column: 1 / -1; }
 table.rep { border-collapse: collapse; width: 100%; font-size: 14px; }
-.rep th, .rep td { border: 1px solid #8a94a0; padding: 3px 6px; text-align: center; vertical-align: middle; }
+.rep th, .rep td { border: 1px solid #c9d1d9; padding: 3px 6px; text-align: center; vertical-align: middle; }
 .rep th:first-child, .rep td:first-child { width: 36px; }
-.rep thead th { max-width: 90px; }
-.rep thead th:nth-child(2) { max-width: none; width: 30%; }
-.rep th { background: #f1f4f7; font-weight: 600; }
+.rep thead tr:first-child th { max-width: 96px; }
+.rep thead tr:first-child th:nth-child(2) { max-width: none; }
+.rep tbody td:has(> input) { width: 1%; white-space: nowrap; } /* колонки баллов одинаковой ширины */
+.rep th { background: #f6f8fa; font-weight: 600; }
 .rep td.name { text-align: left; white-space: nowrap; }
-.rep td input { width: 52px; text-align: center; padding: 2px 4px; border-radius: 6px; }
+.rep td input { width: 46px; text-align: center; padding: 2px 4px; border-radius: 6px; border-color: transparent; background: transparent; }
+.rep td input:hover, .rep td input:focus { border-color: var(--line); background: #fff; }
+input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .rep td input.bad { border-color: var(--warn); background: var(--warn-soft); }
 .rep tr.abs td { color: var(--muted); font-style: italic; }
 .rep tfoot td { font-weight: 600; background: #fafbfc; }

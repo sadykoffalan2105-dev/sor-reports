@@ -70,6 +70,36 @@ export function distribute(total: number, maxes: number[], strategy: Strategy, r
   return out;
 }
 
+/**
+ * Раскидка «по целям»: у каждой колонки целевой процент (100 — задание выполнено полностью,
+ * 60 — в среднем 60 % от максимума). Баллы ученика делятся пропорционально целям, остаток
+ * доводится до точной суммы, затем 1–2 случайных перестановки балла (с сидом) — чтобы строки
+ * не были одинаковыми.
+ */
+export function distributeTargets(total: number, maxes: number[], targets: (number | undefined)[], rng: () => number = Math.random): number[] {
+  const n = maxes.length;
+  if (!n) return [];
+  const sum = maxes.reduce((a, b) => a + b, 0);
+  const t = Math.max(0, Math.min(sum, Math.round(total)));
+  const want = maxes.map((m, i) => m * Math.min(100, Math.max(0, targets[i] ?? 100)) / 100);
+  const wantSum = want.reduce((a, b) => a + b, 0);
+  if (wantSum <= 0) return distribute(t, maxes, 'largest');
+  const k = t / wantSum;
+  const raw = want.map((w, i) => Math.min(maxes[i], w * k));
+  const out = raw.map(Math.floor);
+  let rest = t - out.reduce((a, b) => a + b, 0);
+  // остаток — по убыванию дробной части, при равенстве случайно
+  const order = raw.map((r, i) => ({ i, f: r - Math.floor(r), r: rng() })).sort((a, b) => b.f - a.f || a.r - b.r).map((x) => x.i);
+  for (let pass = 0; rest > 0 && pass < 50; pass++) for (const i of order) { if (rest > 0 && out[i] < maxes[i]) { out[i]++; rest--; } }
+  // лёгкая случайность: перенести 1 балл между двумя колонками, не выходя за пределы
+  const swaps = 1 + Math.floor(rng() * 2);
+  for (let s = 0; s < swaps; s++) {
+    const a = Math.floor(rng() * n), b = Math.floor(rng() * n);
+    if (a !== b && out[a] > 0 && out[b] < maxes[b] && out[a] > Math.floor(maxes[a] * 0.3)) { out[a]--; out[b]++; }
+  }
+  return out;
+}
+
 /** Оценка по доле правильных: 0.86 → 5, 0.66 → 4, 0.30 → 3, иначе 2. */
 export function gradeFor(ratio: number, th: Thresholds): number {
   if (ratio >= th.five) return 5;

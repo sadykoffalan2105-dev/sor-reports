@@ -93,7 +93,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   ws.getCell(3, 1).value = `Отсутствовали: ${r.absent}`;
   ws.getCell(3, 1).font = { ...font, bold: true };
   ws.mergeCells(3, dateStart, 3, L.total);
-  ws.getCell(3, dateStart).value = 'Дата внесения в emaktab.uz:  ';
+  ws.getCell(3, dateStart).value = `Дата внесения в emaktab.uz:  ${r.dateEntered ? r.dateEntered + 'г' : ''}`;
   ws.getCell(3, dateStart).alignment = { horizontal: 'left', vertical: 'middle' };
   ws.getRow(3).height = 31.5;
 

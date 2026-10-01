@@ -58,7 +58,7 @@
           <div class="btns">
             <button class="btn small" id="preset-new" type="button" title="Новая пустая разбаловка">＋ Новая</button>
             <button class="btn small" id="preset-dup" type="button">Дублировать</button>
-            <button class="btn small" id="preset-rename" type="button">Переименовать</button>
+            <input id="preset-name" class="preset-name" placeholder="название разбаловки" title="Название выбранной разбаловки" />
             <button class="btn small ghost" id="preset-del" type="button">Удалить</button>
             <button class="btn small accent" id="photo-btn" type="button" title="Распознать рукописную разбаловку и лестницу с фотографии">📷 Распознать по фото</button>
           </div>
@@ -86,6 +86,7 @@
           <label>Как раскидывать недобор
             <select id="s-strategy">
               <option value="ladder">По лестнице баллов (как у учителя)</option>
+              <option value="targets">По целям заданий (процент за каждое, со случайностью)</option>
               <option value="largest">Снимать с самого тяжёлого задания</option>
               <option value="proportional">Пропорционально весу заданий</option>
               <option value="random">Случайно, с сидом</option>

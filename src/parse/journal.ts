@@ -89,7 +89,9 @@ export function parseJournalRows(rows: Cell[][], source: string, sheetName: stri
       scores: studentRows.map((row) => num(row[c])),
     });
   }
-  const last = cls.assessments.filter((a) => a.kind === 'СОР').at(-1) ?? cls.assessments.at(-1);
+  // по умолчанию — последняя колонка СОР, в которой есть баллы (именно оценки за СОР из журнала)
+  const sors = cls.assessments.filter((a) => a.kind === 'СОР');
+  const last = sors.filter((a) => a.scores.some((x) => x != null)).at(-1) ?? sors.at(-1) ?? cls.assessments.at(-1);
   cls.selectedAssessment = last?.id;
   return cls;
 }
