@@ -3,7 +3,7 @@ import { parseWorkbook, parseManualList, shortTeacherName } from './parse/journa
 import { buildReport, recalcRow, recalcSummary, fullDate } from './core/report.ts';
 import {
   parseStructure, structureFromText, structureToText, structureMax, flattenColumns, taskHeader, taskMax,
-  cloneStructure, normalizeStructure, newPresetId, builtinPresets, pointsLabel, columnName,
+  cloneStructure, normalizeStructure, newPresetId, builtinPresets, columnName,
 } from './core/structure.ts';
 import { generateLadder, ladderErrors, ladderFits, fillLadderGaps, type Ladder } from './core/ladder.ts';
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
@@ -68,7 +68,7 @@ function saveSettings(): void {
   try { localStorage.setItem(LS, JSON.stringify(state.settings)); } catch { /* ignore */ }
 }
 
-const state = { classes: [] as ClassState[], settings: loadSettings(), active: 0, ladderKey: '' };
+const state = { classes: [] as ClassState[], settings: loadSettings(), active: 0, ladderKey: '', editGrade: '' };
 
 /* ---------- утилиты ---------- */
 
@@ -198,93 +198,120 @@ function renderClasses(): void {
 
 /* ---------- рендер: пресеты и редактор структуры ---------- */
 
+/** Классы параллели («6» → все 6-е). */
+function gradeClasses(g: string): ClassState[] { return state.classes.filter((cs) => cs.cls.className.startsWith(g + '-') || cs.cls.className === g); }
+function gradesList(): string[] {
+  return [...new Set(state.classes.map((cs) => cs.cls.className.match(/^\d+/)?.[0]).filter((g): g is string => !!g))].sort((a, b) => Number(a) - Number(b));
+}
+/** Пресет параллели, если все её классы используют один свой пресет. */
+function gradePreset(g: string): Preset | undefined {
+  const ids = new Set(gradeClasses(g).map((cs) => cs.presetId));
+  return ids.size === 1 ? presetById([...ids][0]) : undefined;
+}
+/** Пресет, который сейчас редактируется: своей параллели или общий. */
+function editingPreset(): Preset { return (state.editGrade && gradePreset(state.editGrade)) || currentPreset(); }
+function editingStructure(): Structure { return editingPreset().structure; }
+function assignToGrade(g: string, presetId: string): void { for (const cs of gradeClasses(g)) cs.presetId = presetId; }
+
+/** Вкладки над редактором: «Общая» и параллели. */
+function renderEditTabs(): void {
+  const grades = gradesList();
+  if (!grades.length) { state.editGrade = ''; $('edit-tabs').innerHTML = ''; return; }
+  if (state.editGrade && !grades.includes(state.editGrade)) state.editGrade = '';
+  const tab = (g: string, label: string, hint: string) => `<button class="tab ${g === state.editGrade ? 'active' : ''}" type="button" data-g="${g}" title="${h(hint)}">${h(label)}</button>`;
+  $('edit-tabs').innerHTML = tab('', 'Общая', 'Общая разбаловка для классов без своей')
+    + grades.map((g) => { const p = gradePreset(g); return tab(g, `${g}-е${p ? '' : ' · общая'}`, p ? `Своя: ${p.name}` : 'Используют общую разбаловку'); }).join('')
+    + (state.editGrade && !gradePreset(state.editGrade) ? `<button class="btn small accent" type="button" data-act="own-for-grade">＋ своя для ${state.editGrade}-х</button>` : '');
+}
+
 function renderPresetBar(): void {
-  ($('preset-sel') as HTMLSelectElement).innerHTML = presetOptions(S().presetId, false);
+  const p = editingPreset();
+  ($('preset-sel') as HTMLSelectElement).innerHTML = presetOptions(p.id, false);
   ($('preset-del') as HTMLButtonElement).disabled = S().presets.length <= 1;
-  ($('preset-name') as HTMLInputElement).value = currentPreset().name;
+  ($('preset-name') as HTMLInputElement).value = p.name;
+  const own = state.editGrade ? gradePreset(state.editGrade) : undefined;
+  $('edit-hint').textContent = state.editGrade
+    ? (own ? `${state.editGrade}-е классы: правится их разбаловка «${own.name}»` : `${state.editGrade}-е классы используют общую разбаловку — правки ниже меняют общую`)
+    : 'Общая разбаловка — для всех классов без своей';
 }
 
 function setStructure(st: Structure): void {
   normalizeStructure(st);
-  const p = currentPreset();
+  const p = editingPreset();
   p.structure = cloneStructure(st);
-  S().structure = cloneStructure(st);
+  if (p.id === S().presetId) S().structure = cloneStructure(st);
   saveSettings();
 }
 
 function renderStructureView(): void {
-  const s = S().structure;
+  const s = editingStructure();
   const total = structureMax(s);
   ($('s-structure') as HTMLInputElement).value = structureToText(s);
   $('s-structure-view').innerHTML = s.tasks.map((t, i) => `<span class="task">${h(taskHeader(t, i).split('\n')[0])}${t.parts.length ? ' = ' + t.parts.map((p) => `<span class="part">${p.max}</span>`).join('') : ''}</span>`).join('')
     + `<span class="sum ${total === 50 || total === 40 ? '' : 'bad'}">итого ${total} баллов</span>`;
 }
 
+/** Таблица заданий: строка — задание, ячейки — критерии (баллы, название, цель %). */
 function renderStructureEditor(): void {
-  const s = S().structure;
-  const cards = s.tasks.map((t, ti) => {
-    const parts = t.parts.map((p, pi) => `<div class="part-chip" data-t="${ti}" data-p="${pi}">
-        <span class="idx">Критерий ${ti + 1}.${pi + 1}</span>
-        <input type="text" data-f="plabel" value="${h(p.label ?? '')}" placeholder="название (в шапку)" />
-        <input type="number" data-f="pmax" min="0" value="${p.max}" title="Баллы" />
-        <input type="number" data-f="ptarget" min="0" max="100" value="${p.target ?? ''}" placeholder="100%" title="Целевой процент выполнения (для раскидки «по целям»)" />
+  const s = editingStructure();
+  const rows = s.tasks.map((t, ti) => {
+    const parts = t.parts.map((p, pi) => `<div class="part-cell" data-t="${ti}" data-p="${pi}">
+        <input type="number" data-f="pmax" min="0" value="${p.max}" title="Баллы критерия ${ti + 1}.${pi + 1} (Enter — следующий критерий)" />
         <button class="x" type="button" data-act="del-part" title="Убрать критерий">✕</button>
+        <input type="text" data-f="plabel" value="${h(p.label ?? '')}" placeholder="название" title="Название критерия в шапке" />
+        <input type="number" data-f="ptarget" min="0" max="100" value="${p.target ?? ''}" placeholder="цель %" title="Целевой % для раскидки «по целям»" />
       </div>`).join('');
-    return `<div class="task-card" data-t="${ti}">
-      <div class="task-head">
-        <b>Задание ${ti + 1}</b><span class="task-sum" data-k="tsum">${pointsLabel(taskMax(t))}</span>
-        <span class="sp"></span>
-        <button class="mini" type="button" data-act="up" title="Выше" ${ti === 0 ? 'disabled' : ''}>↑</button>
-        <button class="mini" type="button" data-act="down" title="Ниже" ${ti === s.tasks.length - 1 ? 'disabled' : ''}>↓</button>
-        <button class="mini danger" type="button" data-act="del-task" ${s.tasks.length <= 1 ? 'disabled' : ''}>Удалить</button>
-      </div>
-      <div class="task-head">
-        <label class="task-title">Название в шапке (необязательно) <input type="text" data-f="title" value="${h(t.title ?? '')}" placeholder="например: Тест / Практическая работа" /></label>
-        <label class="task-quick">Критерии быстро <input type="text" data-f="tquick" value="${h(t.parts.length ? t.parts.map((p) => p.max).join('+') : String(t.max))}" placeholder="5+5+20+10" title="Баллы критериев через «+»; одно число — задание без критериев" /></label>
-        ${t.parts.length ? '' : `<label class="task-points">Баллы <input type="number" data-f="tmax" min="0" value="${t.max}" /></label><label class="task-points">Цель % <input type="number" data-f="ttarget" min="0" max="100" value="${t.target ?? ''}" placeholder="100" title="Целевой процент выполнения (для раскидки «по целям»)" /></label>`}
-      </div>
-      <div class="parts">${parts}<button class="mini" type="button" data-act="add-part">＋ критерий</button></div>
-    </div>`;
+    return `<tr class="task-row" data-t="${ti}">
+      <td class="n">${ti + 1}</td>
+      <td class="ttl"><input type="text" data-f="title" value="${h(t.title ?? '')}" placeholder="название в шапке (необязательно)" /></td>
+      <td class="parts-cell"><div class="parts">${parts}<button class="mini" type="button" data-act="add-part" title="Добавить критерий">＋ критерий</button></div></td>
+      <td class="n">${t.parts.length ? `<b data-k="tsum">${taskMax(t)}</b>` : `<input type="number" data-f="tmax" min="0" value="${t.max}" title="Баллы задания" />`}</td>
+      <td class="n">${t.parts.length ? '' : `<input type="number" data-f="ttarget" min="0" max="100" value="${t.target ?? ''}" placeholder="100" title="Целевой %" />`}</td>
+      <td class="ops"><button class="mini" type="button" data-act="up" ${ti === 0 ? 'disabled' : ''} title="Выше">↑</button><button class="mini" type="button" data-act="down" ${ti === s.tasks.length - 1 ? 'disabled' : ''} title="Ниже">↓</button><button class="mini danger" type="button" data-act="del-task" ${s.tasks.length <= 1 ? 'disabled' : ''} title="Удалить задание">✕</button></td>
+    </tr>`;
   }).join('');
   const total = structureMax(s);
-  $('struct-editor').innerHTML = `${cards}<div class="struct-total"><button class="mini" type="button" data-act="add-task">＋ задание</button><span>Итого: <b data-k="total">${total}</b> баллов</span><span class="${total === 50 || total === 40 ? 'ok' : 'bad'}" data-k="total-note">${total === 50 || total === 40 ? '✓' : 'обычно СОР = 50, СОЧ = 40'}</span></div>`;
+  const ok = total === 50 || total === 40;
+  $('struct-editor').innerHTML = `<table class="st"><thead><tr><th>№</th><th>Название в шапке</th><th>Критерии: баллы · название · цель %</th><th>Баллы</th><th>Цель %</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr><td colspan="3"><button class="mini" type="button" data-act="add-task">＋ задание</button></td><td class="n"><b data-k="total">${total}</b></td><td colspan="2" class="${ok ? 'ok' : 'bad'}" data-k="total-note">${ok ? '✓ итого' : 'обычно СОР = 50, СОЧ = 40'}</td></tr></tfoot></table>`;
 }
 
-/** Ввод в поле редактора: обновить данные без перерисовки карточек. */
+/** Ввод в поле редактора: обновить данные без перерисовки таблицы. */
 function onStructInput(t: HTMLInputElement): void {
-  const st = S().structure;
-  const card = t.closest('.task-card') as HTMLElement | null;
-  if (!card) return;
-  const ti = Number(card.dataset.t);
+  const st = cloneStructure(editingStructure());
+  const tr = t.closest('tr.task-row') as HTMLElement | null;
+  if (!tr) return;
+  const ti = Number(tr.dataset.t);
   const task = st.tasks[ti]; if (!task) return;
   const f = t.dataset.f;
-  if (f === 'tquick') return; // обрабатывается по change
+  const num = (v: string) => Math.max(0, Math.round(Number(v)) || 0);
+  const pctv = (v: string) => (v.trim() === '' ? undefined : Math.min(100, Math.max(0, Number(v) || 0)));
   if (f === 'title') task.title = t.value;
-  else if (f === 'tmax') task.max = Math.max(0, Math.round(Number(t.value)) || 0);
-  else if (f === 'ttarget') task.target = t.value.trim() === '' ? undefined : Math.min(100, Math.max(0, Number(t.value) || 0));
+  else if (f === 'tmax') task.max = num(t.value);
+  else if (f === 'ttarget') task.target = pctv(t.value);
   else if (f === 'plabel' || f === 'pmax' || f === 'ptarget') {
-    const pi = Number((t.closest('.part-chip') as HTMLElement).dataset.p);
+    const pi = Number((t.closest('.part-cell') as HTMLElement).dataset.p);
     const part = task.parts[pi]; if (!part) return;
-    if (f === 'plabel') part.label = t.value;
-    else if (f === 'ptarget') part.target = t.value.trim() === '' ? undefined : Math.min(100, Math.max(0, Number(t.value) || 0));
-    else part.max = Math.max(0, Math.round(Number(t.value)) || 0);
-  }
+    if (f === 'plabel') part.label = t.value; else if (f === 'ptarget') part.target = pctv(t.value); else part.max = num(t.value);
+  } else return;
   setStructure(st);
-  card.querySelector('[data-k="tsum"]')!.textContent = pointsLabel(taskMax(S().structure.tasks[ti]));
-  const total = structureMax(S().structure);
-  $('struct-editor').querySelector('[data-k="total"]')!.textContent = String(total);
-  const note = $('struct-editor').querySelector('[data-k="total-note"]')!;
-  note.className = total === 50 || total === 40 ? 'ok' : 'bad';
-  note.textContent = total === 50 || total === 40 ? '✓' : 'обычно СОР = 50, СОЧ = 40';
+  const cur = editingStructure();
+  const sum = tr.querySelector('[data-k="tsum"]'); if (sum) sum.textContent = String(taskMax(cur.tasks[ti]));
+  const total = structureMax(cur); const ok = total === 50 || total === 40;
+  const ed = $('struct-editor');
+  ed.querySelector('[data-k="total"]')!.textContent = String(total);
+  const note = ed.querySelector('[data-k="total-note"]')!;
+  note.className = ok ? 'ok' : 'bad'; note.textContent = ok ? '✓ итого' : 'обычно СОР = 50, СОЧ = 40';
   renderStructureView();
-  rebuild(); renderClasses(); renderLadder(); renderTabs(); renderPreview();
+  rebuild(); renderEditTabs(); renderClasses(); renderLadder(); renderTabs(); renderPreview();
 }
 
 function onStructClick(btn: HTMLElement): void {
-  const st = cloneStructure(S().structure);
+  const st = cloneStructure(editingStructure());
   const act = btn.dataset.act;
-  const card = btn.closest('.task-card') as HTMLElement | null;
-  const ti = card ? Number(card.dataset.t) : -1;
+  const tr = btn.closest('tr.task-row') as HTMLElement | null;
+  const ti = tr ? Number(tr.dataset.t) : -1;
   if (act === 'add-task') st.tasks.push({ title: '', parts: [], max: 5 });
   else if (act === 'del-task' && st.tasks.length > 1) st.tasks.splice(ti, 1);
   else if (act === 'up' && ti > 0) [st.tasks[ti - 1], st.tasks[ti]] = [st.tasks[ti], st.tasks[ti - 1]];
@@ -294,7 +321,7 @@ function onStructClick(btn: HTMLElement): void {
     if (!t.parts.length) t.parts.push({ label: '', max: t.max });
     t.parts.push({ label: '', max: 5 });
   } else if (act === 'del-part') {
-    const pi = Number((btn.closest('.part-chip') as HTMLElement).dataset.p);
+    const pi = Number((btn.closest('.part-cell') as HTMLElement).dataset.p);
     const t = st.tasks[ti];
     t.parts.splice(pi, 1);
     if (t.parts.length === 1) { t.max = t.parts[0].max; t.parts = []; }
@@ -655,42 +682,51 @@ function bindSettings(): void {
 
   // быстрый ввод
   $('s-structure').addEventListener('change', () => {
-    const st = structureFromText(($('s-structure') as HTMLInputElement).value, S().structure);
+    const st = structureFromText(($('s-structure') as HTMLInputElement).value, editingStructure());
     if (!st) { renderStructureView(); return; }
     setStructure(st); rebuild(); render();
   });
 
-  // пресеты
+  // вкладки параллелей над редактором
+  $('edit-tabs').addEventListener('click', (e) => {
+    const own = (e.target as HTMLElement).closest('[data-act="own-for-grade"]');
+    if (own && state.editGrade) {
+      const base = editingPreset();
+      const p: Preset = { id: newPresetId(), name: `${state.editGrade} класс — своя`, structure: cloneStructure(base.structure) };
+      S().presets.push(p); assignToGrade(state.editGrade, p.id); saveSettings(); rebuild(); render(); return;
+    }
+    const t = (e.target as HTMLElement).closest('.tab[data-g]') as HTMLElement | null; if (!t) return;
+    state.editGrade = t.dataset.g ?? ''; render();
+  });
+
+  // пресеты (в режиме параллели — назначаются её классам, иначе — общая)
+  const useNewPreset = (p: Preset) => {
+    S().presets.push(p);
+    if (state.editGrade) assignToGrade(state.editGrade, p.id); else { S().presetId = p.id; S().structure = cloneStructure(p.structure); }
+    saveSettings(); rebuild(); render();
+  };
   $('preset-sel').addEventListener('change', () => {
-    const id = ($('preset-sel') as HTMLSelectElement).value;
-    if (!presetById(id)) return;
-    S().presetId = id; S().structure = cloneStructure(presetById(id)!.structure);
+    const id = ($('preset-sel') as HTMLSelectElement).value; const p = presetById(id); if (!p) return;
+    if (state.editGrade) assignToGrade(state.editGrade, id === S().presetId ? '' : id);
+    else { S().presetId = id; S().structure = cloneStructure(p.structure); }
     saveSettings(); rebuild(); render();
   });
-  $('preset-new').addEventListener('click', () => {
-    const p: Preset = { id: newPresetId(), name: `Разбаловка ${S().presets.length + 1}`, structure: parseStructure('5; 5+5+20+10; 5')! };
-    S().presets.push(p); S().presetId = p.id; S().structure = cloneStructure(p.structure);
-    saveSettings(); rebuild(); render();
-  });
-  $('preset-dup').addEventListener('click', () => {
-    const cur = currentPreset();
-    const p: Preset = { id: newPresetId(), name: `${cur.name} (копия)`, structure: cloneStructure(cur.structure) };
-    S().presets.push(p); S().presetId = p.id; S().structure = cloneStructure(p.structure);
-    saveSettings(); rebuild(); render();
-  });
+  $('preset-new').addEventListener('click', () => useNewPreset({ id: newPresetId(), name: state.editGrade ? `${state.editGrade} класс — новая` : `Разбаловка ${S().presets.length + 1}`, structure: parseStructure('5; 5+5+20+10; 5')! }));
+  $('preset-dup').addEventListener('click', () => { const cur = editingPreset(); useNewPreset({ id: newPresetId(), name: `${cur.name} (копия)`, structure: cloneStructure(cur.structure) }); });
   $('preset-name').addEventListener('change', () => { // переименование прямо в поле
     const name = ($('preset-name') as HTMLInputElement).value.trim();
-    if (!name) { ($('preset-name') as HTMLInputElement).value = currentPreset().name; return; }
-    currentPreset().name = name; saveSettings(); render();
+    if (!name) { ($('preset-name') as HTMLInputElement).value = editingPreset().name; return; }
+    editingPreset().name = name; saveSettings(); render();
   });
   $('preset-del').addEventListener('click', () => {
     const s2 = S();
     if (s2.presets.length <= 1) return;
-    const cur = currentPreset();
+    const cur = editingPreset();
     if (!confirm(`Удалить разбаловку «${cur.name}»?`)) return;
     s2.presets = s2.presets.filter((p) => p.id !== cur.id);
     for (const cs of state.classes) if (cs.presetId === cur.id) cs.presetId = '';
-    s2.presetId = s2.presets[0].id; s2.structure = cloneStructure(s2.presets[0].structure);
+    if (!presetById(s2.presetId)) s2.presetId = s2.presets[0].id;
+    s2.structure = cloneStructure(presetById(s2.presetId)!.structure);
     saveSettings(); rebuild(); render();
   });
 
@@ -699,7 +735,7 @@ function bindSettings(): void {
   $('struct-editor').addEventListener('change', (e) => { // быстрый ввод критериев одного задания
     const t = e.target as HTMLInputElement; if (!t.matches('input[data-f="tquick"]')) return;
     const st = cloneStructure(S().structure);
-    const ti = Number((t.closest('.task-card') as HTMLElement).dataset.t);
+    const ti = Number((t.closest('tr.task-row') as HTMLElement).dataset.t);
     const task = st.tasks[ti]; if (!task) return;
     const nums = t.value.split(/[+\s,;/]+/).map(Number).filter((n) => Number.isFinite(n) && n >= 0);
     if (!nums.length) { renderStructureEditor(); return; }
@@ -711,11 +747,11 @@ function bindSettings(): void {
     const t = e.target as HTMLInputElement;
     if (e.key !== 'Enter' || !t.matches('input[data-f="pmax"]')) return;
     e.preventDefault();
-    const card = t.closest('.task-card') as HTMLElement;
+    const card = t.closest('tr.task-row') as HTMLElement;
     const btn = card.querySelector('button[data-act="add-part"]') as HTMLElement | null;
     if (!btn) return;
     onStructClick(btn);
-    const inputs = document.querySelectorAll(`.task-card[data-t="${card.dataset.t}"] input[data-f="pmax"]`);
+    const inputs = document.querySelectorAll(`tr.task-row[data-t="${card.dataset.t}"] input[data-f="pmax"]`);
     (inputs[inputs.length - 1] as HTMLInputElement | undefined)?.focus();
   });
   $('struct-editor').addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button[data-act]') as HTMLElement | null; if (b) onStructClick(b); });
@@ -841,7 +877,7 @@ function bindEvents(): void {
 }
 
 function render(): void {
-  renderGrades(); renderClasses(); renderPresetBar(); renderStructureView(); renderStructureEditor(); renderLadder(); renderTabs(); renderPreview();
+  renderGrades(); renderClasses(); renderEditTabs(); renderPresetBar(); renderStructureView(); renderStructureEditor(); renderLadder(); renderTabs(); renderPreview();
 }
 
 bindSettings();

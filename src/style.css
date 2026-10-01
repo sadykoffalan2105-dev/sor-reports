@@ -213,3 +213,29 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
   .preview { overflow: visible; }
   .rep td input { border: 0; width: auto; }
 }
+
+/* редактор разбаловки — таблица по ячейкам */
+.edit-tabs { margin-bottom: 6px; }
+.edit-hint { display: block; margin-bottom: 8px; }
+table.st { border-collapse: collapse; width: 100%; font-size: 13px; margin-bottom: 10px; background: #fff; }
+.st th, .st td { border: 1px solid var(--line); padding: 5px 6px; vertical-align: middle; }
+.st th { background: #f6f8fa; font-weight: 600; text-align: left; font-size: 12px; color: var(--muted); }
+.st td.n { text-align: center; width: 66px; font-size: 14px; }
+.st td.n input { width: 58px; text-align: center; }
+.st td.ttl { width: 22%; }
+.st td.ttl input { width: 100%; }
+.st .parts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.st .part-cell { display: grid; grid-template-columns: 56px 22px; gap: 3px 2px; border: 1px solid var(--line); border-radius: 8px; padding: 4px; background: #fafbfc; }
+.st .part-cell input { padding: 3px 4px; font-size: 12px; }
+.st .part-cell input[data-f="pmax"] { font-weight: 700; font-size: 14px; text-align: center; background: #fff; }
+.st .part-cell .x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0; }
+.st .part-cell .x:hover { color: var(--warn); }
+.st .part-cell input[data-f="plabel"], .st .part-cell input[data-f="ptarget"] { grid-column: 1 / -1; width: 100%; background: transparent; border-color: transparent; }
+.st .part-cell input[data-f="plabel"]:hover, .st .part-cell input[data-f="plabel"]:focus, .st .part-cell input[data-f="ptarget"]:hover, .st .part-cell input[data-f="ptarget"]:focus { border-color: var(--line); background: #fff; }
+.st .part-cell input[data-f="ptarget"] { text-align: center; }
+.st td.ops { white-space: nowrap; width: 96px; }
+.st td.ops .mini { padding: 2px 6px; margin-right: 2px; }
+.st tfoot td { background: #fafbfc; }
+.st tfoot .ok { color: var(--accent); font-weight: 600; }
+.st tfoot .bad { color: var(--warn); font-weight: 600; }
+@media (max-width: 800px) { .st td.ttl { width: 30%; } .st th:nth-child(5), .st td:nth-child(5) { display: none; } }
