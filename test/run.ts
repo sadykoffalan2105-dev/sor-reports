@@ -29,7 +29,7 @@ const settings: Settings = {
   teacherShort: shortTeacherName(classes[0]?.teacher),
   year: '2025–2026',
   structure: parseStructure('5; 5+5+20+10; 5')!,
-  strategy: 'ladder', seed: 1,
+  strategy: 'ladder', seed: 1, spread: 1,
   thresholds: { five: 0.86, four: 0.66, three: 0.3 },
   includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
   fontName: 'Aptos Narrow', ladders: {}, layout: DEFAULT_LAYOUT,
@@ -67,6 +67,8 @@ writeFileSync(out, bytes);
 console.log('записано', out, bytes.length, 'байт');
 
 // вариант 2.2 с отсутствующими
+classes[0].students[1].reason = 'Б'; classes[0].students[1].retake = '20.04.2026'; // форма 1/2: сдавал позже
+classes[0].students[4].manualScore = 40; classes[0].students[4].reason = 'П'; // отсутствовал в журнале, балл вручную
 const s2 = { ...settings, includeAbsent: true, absentColumns: true, showDates: true };
 const bytes2 = await exportWorkbook(classes.map((c) => buildReport(c, s2)), s2);
 writeFileSync('.out/variant-2.2.xlsx', bytes2);

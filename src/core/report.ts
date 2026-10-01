@@ -53,19 +53,19 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
   const absentNames: string[] = [];
   let n = 0;
   cls.students.forEach((st, i) => {
-    const score = a?.scores[i] ?? null;
+    const score = st.manualScore ?? a?.scores[i] ?? null;
     if (score == null) {
       absentNames.push(st.name);
       if (!s.includeAbsent) return;
-      rows.push({ n: ++n, name: st.name, absent: true, scores: columns.map(() => 0), total: 0, percent: 0, grade: 0 });
+      rows.push({ n: ++n, name: st.name, absent: true, scores: columns.map(() => 0), total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i });
       return;
     }
     const rng = makeRng((s.seed ^ hash(st.name)) >>> 0);
     const t = Math.max(0, Math.min(max, Math.round(score)));
     const scores = rowsOf?.[t] ? rowsOf[t].slice()
-      : s.strategy === 'targets' ? distributeTargets(score, maxes, columns.map((c) => c.target), rng)
+      : s.strategy === 'targets' ? distributeTargets(score, maxes, columns.map((c) => c.target), rng, s.spread ?? 1)
       : distribute(score, maxes, s.strategy === 'ladder' ? 'largest' : s.strategy, rng);
-    const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0 };
+    const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i };
     recalcRow(row, max, s.thresholds);
     rows.push(row);
   });
@@ -82,7 +82,7 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     date: cls.dateHeld || (s.showDates ? fullDate(a?.date, cls.year || s.year) : undefined),
     dateEntered: cls.dateEntered,
     max, columns, tasks: structure.tasks, rows,
-    participants: 0, absent: absentNames.length, absentNames,
+    participants: 0, absent: absentNames.length + rows.filter((x) => !x.absent && x.reason).length, absentNames,
     avg: [], avgTotal: 0, count5: 0, count4: 0, efficiency: 0,
     teacherShort: s.teacherShort, thresholds: s.thresholds,
     absentColumns: s.absentColumns, showDates: s.showDates,

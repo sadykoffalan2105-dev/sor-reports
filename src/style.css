@@ -28,6 +28,18 @@ h2 { font-size: 18px; margin: 0 0 14px; display: flex; align-items: center; gap:
 .drop small { display: block; color: var(--muted); margin-top: 4px; }
 
 .classes { display: grid; gap: 10px; margin-top: 14px; }
+.grades { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.grade { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 6px 10px; font-size: 13px; }
+.grade .muted { color: var(--muted); }
+.grade select { width: auto; max-width: 280px; padding: 4px 8px; font-size: 13px; }
+.rep tr.retake td { background: #fff7b3; }
+.rep .delc { width: 24px; border-color: transparent !important; background: transparent !important; }
+.rep .del { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 13px; opacity: .5; }
+.rep tr:hover .del { opacity: 1; }
+.rep .del:hover { color: var(--warn); }
+.rep td select { padding: 2px 4px; width: auto; }
+.rep td input[type="date"] { width: 128px; text-align: left; }
+.rep tr.abs td input[data-act="manual"] { width: 56px; }
 .cls { display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .cls .name { font-weight: 700; font-size: 16px; }
 .cls .meta { color: var(--muted); font-size: 13px; }

@@ -18,6 +18,9 @@ export interface Student {
   n: number;
   name: string;
   id?: string;
+  reason?: string;        // причина отсутствия (Б/П/Н) — форма 1/2
+  retake?: string;        // дата сдачи (дд.мм.гггг)
+  manualScore?: number | null; // балл, введённый вручную (для отсутствующих в журнале)
 }
 
 /** Один класс из одного файла журнала (или из ручного ввода). */
@@ -63,6 +66,8 @@ export interface Settings {
   presetId: string;
   strategy: Strategy;
   seed: number;
+  /** Разброс при раскидке «по целям»: число случайных перестановок балла (0 — без случайности). */
+  spread: number;
   thresholds: Thresholds;
   includeAbsent: boolean;   // строки отсутствующих в таблице
   absentColumns: boolean;   // колонки «Причина отсутствия» и «Дата сдачи»
@@ -97,6 +102,9 @@ export interface ReportRow {
   total: number;
   percent: number;
   grade: number;
+  reason?: string;
+  retake?: string;
+  studentIndex: number;  // индекс в cls.students
 }
 
 export interface ClassReport {

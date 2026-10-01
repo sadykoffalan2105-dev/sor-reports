@@ -9,7 +9,7 @@ import { generateLadder, ladderErrors, ladderFits, fillLadderGaps, type Ladder }
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
 import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
-import type { ClassReport, JournalClass, Preset, Settings, Structure } from './core/types.ts';
+import type { ClassReport, JournalClass, Preset, ReportRow, Settings, Structure } from './core/types.ts';
 
 /* ---------- состояние ---------- */
 
@@ -24,7 +24,7 @@ function defaults(): Settings {
     kind: 'СОР', number: 1, teacherShort: '', year: '2025–2026',
     structure: cloneStructure(presets[0].structure),
     presets, presetId: presets[0].id,
-    strategy: 'ladder', seed: 7,
+    strategy: 'ladder', seed: 7, spread: 1,
     thresholds: { five: 0.86, four: 0.66, three: 0.3 },
     includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
     fontName: 'Aptos Narrow',
@@ -153,6 +153,21 @@ function presetOptions(selected: string, withDefault: boolean): string {
   const opts = S().presets.map((p) => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${h(p.name)} · ${h(structureToText(p.structure))}</option>`);
   if (withDefault) opts.unshift(`<option value="" ${selected ? '' : 'selected'}>как общая (${h(currentPreset().name)})</option>`);
   return opts.join('');
+}
+
+/** Разбаловка по параллелям: одна настройка на все 5-е, 6-е … классы. */
+function renderGrades(): void {
+  const box = $('grades');
+  const grades = [...new Set(state.classes.map((cs) => cs.cls.className.match(/^\d+/)?.[0]).filter((g): g is string => !!g))].sort((a, b) => Number(a) - Number(b));
+  if (grades.length < 1 || state.classes.length < 2) { box.innerHTML = ''; return; }
+  box.innerHTML = grades.map((g) => {
+    const members = state.classes.filter((cs) => cs.cls.className.startsWith(g + '-') || cs.cls.className === g);
+    const ids = new Set(members.map((cs) => cs.presetId));
+    const cur = ids.size === 1 ? [...ids][0] : '';
+    return `<div class="grade" data-g="${g}"><b>${g}-е классы</b><span class="muted">(${members.map((m) => m.cls.className).join(', ')})</span>
+      <select data-act="grade-preset">${ids.size > 1 ? '<option value="" selected>разные…</option>' : ''}${presetOptions(cur, true)}</select>
+      <button class="btn small ghost" type="button" data-act="grade-own" title="Создать копию общей разбаловки для этой параллели">＋ своя</button></div>`;
+  }).join('');
 }
 
 function renderClasses(): void {
@@ -426,17 +441,22 @@ function renderPreview(): void {
     if (!t.parts.length) head1 += `<th rowspan="2">${br(taskHeader(t, ti))}</th>`;
     else { head1 += `<th colspan="${cols.length}">${br(taskHeader(t, ti))}</th>`; head2 += cols.map((c) => `<th>${br(c.header)}</th>`).join(''); }
   });
+  const REASONS = ['', 'Б', 'П', 'Н', 'У'];
+  const reasonCells = (row: ReportRow) => r.absentColumns
+    ? `<td><select data-act="reason" data-s="${row.studentIndex}" title="Причина отсутствия: Б — болел, П — пропуск, Н — не был, У — уважительная">${REASONS.map((x) => `<option value="${x}" ${x === (row.reason ?? '') ? 'selected' : ''}>${x || '—'}</option>`).join('')}</select></td><td><input type="date" data-act="retake" data-s="${row.studentIndex}" value="${toIso(row.retake)}" title="Дата сдачи" /></td>`
+    : '';
+  const del = (row: ReportRow) => `<td class="delc"><button class="del" type="button" data-act="del-student" data-s="${row.studentIndex}" title="Убрать ученика из отчёта">✕</button></td>`;
   const body = r.rows.map((row, ri) => {
     if (row.absent) {
       const who = r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал';
-      return `<tr class="abs"><td>${row.n}</td><td class="name">${h(row.name)}</td>${r.absentColumns ? `<td>${who}</td><td></td><td colspan="${r.columns.length + 3}"></td>` : `<td colspan="${r.columns.length + 3}">${who}</td>`}</tr>`;
+      return `<tr class="abs" data-r="${ri}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}<td colspan="${r.columns.length + 3}">${who} · балл вручную: <input type="number" min="0" max="${r.max}" data-act="manual" data-s="${row.studentIndex}" placeholder="—" /></td>${del(row)}</tr>`;
     }
     const cells = row.scores.map((v, ci) => `<td><input type="number" min="0" max="${r.columns[ci].max}" value="${v}" data-r="${ri}" data-c="${ci}" /></td>`).join('');
-    return `<tr data-r="${ri}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${r.absentColumns ? '<td></td><td></td>' : ''}${cells}<td data-k="total">${row.total}</td><td data-k="pct">${pct(row.percent)}</td><td data-k="grade">${row.grade}</td></tr>`;
+    return `<tr data-r="${ri}" class="${row.reason ? 'retake' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total">${row.total}</td><td data-k="pct">${pct(row.percent)}</td><td data-k="grade">${row.grade}</td>${del(row)}</tr>`;
   }).join('');
   const footEl = document.createElement('tfoot');
   renderFootInto(footEl, r);
-  const variant = S().variantLabel.trim() || (r.absentColumns ? '2' : '1');
+  const variant = S().variantLabel.trim() || (r.absentColumns ? '1/2' : '1');
 
   box.innerHTML = `${mismatch}${info}${renderStats(r)}<div class="sheet">
     ${Ly.showTitle ? `<div class="title-row"><p class="title">${h(r.title)}</p>${Ly.showVariant ? `<span class="variant" title="Цифра варианта формы">${h(variant)}</span>` : ''}</div>` : ''}
@@ -444,7 +464,7 @@ function renderPreview(): void {
       <b>Отсутствовали: ${r.absent}</b><span>Дата внесения в emaktab.uz: ${h(r.dateEntered ?? '')}</span>
       ${r.absentNames.length ? `<span class="absent">Без балла: ${h(r.absentNames.join(', '))}</span>` : ''}</div>` : ''}
     <table class="rep"><thead>
-      <tr><th rowspan="2">№</th><th rowspan="2">${h(Ly.labels.name)}</th>${extra}${head1}<th rowspan="2">${h(Ly.labels.total)}</th><th rowspan="2">${h(Ly.labels.percent)}</th><th rowspan="2">${h(Ly.labels.grade)}</th></tr>
+      <tr><th rowspan="2">№</th><th rowspan="2">${h(Ly.labels.name)}</th>${extra}${head1}<th rowspan="2">${h(Ly.labels.total)}</th><th rowspan="2">${h(Ly.labels.percent)}</th><th rowspan="2">${h(Ly.labels.grade)}</th><th rowspan="2" class="delc"></th></tr>
       <tr>${head2}</tr></thead>
       <tbody>${body}</tbody><tfoot>${footEl.innerHTML}</tfoot></table>
     ${Ly.showSignature ? `<p class="sign">${h(Ly.labels.signature)} ${h(r.teacherShort)}__________________ &nbsp;&nbsp;&nbsp; Подпись ________</p>` : ''}
@@ -587,7 +607,7 @@ function bindSettings(): void {
     if (typeof v === 'boolean') el.checked = v; else el.value = String(v);
   };
   set('s-school', s.school); set('s-kind', s.kind); set('s-number', s.number); set('s-teacher', s.teacherShort);
-  set('s-year', s.year); set('s-strategy', s.strategy); set('s-seed', s.seed);
+  set('s-year', s.year); set('s-strategy', s.strategy); set('s-seed', s.seed); set('s-spread', s.spread ?? 1);
   set('s-t5', Math.round(s.thresholds.five * 100)); set('s-t4', Math.round(s.thresholds.four * 100)); set('s-t3', Math.round(s.thresholds.three * 100));
   set('s-absent', s.includeAbsent); set('s-absentcols', s.absentColumns); set('s-dates', s.showDates); set('s-charttotal', s.chartIncludeTotal);
   set('s-variant', s.variantLabel); set('s-note', s.noteText);
@@ -612,7 +632,7 @@ function bindSettings(): void {
     const b = (id: string) => ($(id) as HTMLInputElement).checked;
     s.school = v('s-school').trim(); s.kind = v('s-kind') as Settings['kind']; s.number = Math.max(1, Number(v('s-number')) || 1);
     s.teacherShort = v('s-teacher').trim(); s.year = v('s-year').trim();
-    s.strategy = v('s-strategy') as Settings['strategy']; s.seed = Number(v('s-seed')) || 0;
+    s.strategy = v('s-strategy') as Settings['strategy']; s.seed = Number(v('s-seed')) || 0; s.spread = Math.max(0, Math.min(5, Number(v('s-spread')) || 0));
     s.thresholds = { five: Number(v('s-t5')) / 100, four: Number(v('s-t4')) / 100, three: Number(v('s-t3')) / 100 };
     s.includeAbsent = b('s-absent'); s.absentColumns = b('s-absentcols'); s.showDates = b('s-dates'); s.chartIncludeTotal = b('s-charttotal');
     s.variantLabel = v('s-variant').trim(); s.noteText = v('s-note');
@@ -733,6 +753,23 @@ function bindEvents(): void {
     if (t.dataset.act === 'dateHeld' || t.dataset.act === 'dateEntered') { renderTabs(); renderPreview(); return; } // не перерисовывать карточку — не терять фокус
     render();
   });
+  $('grades').addEventListener('change', (e) => {
+    const t = e.target as HTMLSelectElement; if (t.dataset.act !== 'grade-preset') return;
+    const g = (t.closest('.grade') as HTMLElement).dataset.g!;
+    for (const cs of state.classes) if (cs.cls.className.startsWith(g + '-') || cs.cls.className === g) cs.presetId = t.value;
+    rebuild(); render();
+  });
+  $('grades').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest('[data-act="grade-own"]'); if (!b) return;
+    const g = (b.closest('.grade') as HTMLElement).dataset.g!;
+    const base = currentPreset();
+    const p: Preset = { id: newPresetId(), name: `${g} класс — своя`, structure: cloneStructure(base.structure) };
+    S().presets.push(p);
+    for (const cs of state.classes) if (cs.cls.className.startsWith(g + '-') || cs.cls.className === g) cs.presetId = p.id;
+    S().presetId = p.id; S().structure = cloneStructure(p.structure); // сразу открыть её в редакторе
+    saveSettings(); rebuild(); render();
+    $('struct-editor').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
   $('classes').addEventListener('click', (e) => {
     const jd = (e.target as HTMLElement).closest('[data-act="journal-date"]');
     if (jd) {
@@ -763,6 +800,27 @@ function bindEvents(): void {
   $('preview').addEventListener('input', (e) => {
     const t = e.target as HTMLInputElement; if (t.matches('input[data-r]')) onScoreEdit(t);
   });
+  $('preview').addEventListener('change', (e) => { // причина, дата сдачи, ручной балл
+    const t = e.target as HTMLInputElement;
+    const act = t.dataset.act; if (!act || t.dataset.s == null) return;
+    const cs = state.classes[state.active]; if (!cs) return;
+    const st = cs.cls.students[Number(t.dataset.s)]; if (!st) return;
+    if (act === 'reason') st.reason = t.value || undefined;
+    else if (act === 'retake') st.retake = fromIso(t.value) || undefined;
+    else if (act === 'manual') { const v = Number(t.value); st.manualScore = t.value.trim() === '' || !Number.isFinite(v) ? null : Math.max(0, Math.min(cs.report?.max ?? 50, v)); }
+    else return;
+    rebuild(state.active); renderPreview();
+  });
+  $('preview').addEventListener('click', (e) => { // убрать ученика
+    const b = (e.target as HTMLElement).closest('button[data-act="del-student"]') as HTMLElement | null; if (!b) return;
+    const cs = state.classes[state.active]; if (!cs) return;
+    const si = Number(b.dataset.s); const st = cs.cls.students[si]; if (!st) return;
+    if (!confirm(`Убрать ${st.name} из отчёта?`)) return;
+    cs.cls.students.splice(si, 1);
+    for (const a of cs.cls.assessments) a.scores.splice(si, 1);
+    cs.cls.students.forEach((x, i) => { x.n = i + 1; });
+    rebuild(state.active); render();
+  });
 
   $('dl-all').addEventListener('click', async () => {
     const reports = state.classes.map((c) => c.report).filter((r): r is ClassReport => !!r);
@@ -783,7 +841,7 @@ function bindEvents(): void {
 }
 
 function render(): void {
-  renderClasses(); renderPresetBar(); renderStructureView(); renderStructureEditor(); renderLadder(); renderTabs(); renderPreview();
+  renderGrades(); renderClasses(); renderPresetBar(); renderStructureView(); renderStructureEditor(); renderLadder(); renderTabs(); renderPreview();
 }
 
 bindSettings();

@@ -23,6 +23,7 @@
           <strong>Перетащите файлы журнала сюда</strong> или нажмите, чтобы выбрать
           <small>.xls / .xlsx из emaktab.uz — можно сразу несколько классов</small>
         </label>
+        <div id="grades" class="grades"></div>
         <div id="classes" class="classes"></div>
         <details class="manual">
           <summary>Ввести список вручную</summary>
@@ -95,8 +96,11 @@
           <label>Сид случайности
             <div class="row"><input id="s-seed" type="number" min="0" /><button class="btn ghost" id="s-reseed" type="button" title="Новый сид">↻</button></div>
           </label>
+          <label>Разброс при раскидке <small>0 — без случайности, 1–5 — сильнее</small>
+            <input id="s-spread" type="number" min="0" max="5" />
+          </label>
           <label>Цифра варианта формы <small>фиолетовая, справа от заголовка</small>
-            <input id="s-variant" placeholder="авто: 1, с колонками отсутствия — 2" />
+            <input id="s-variant" placeholder="авто: 1, форма с отсутствием — 1/2" />
           </label>
           <label class="chk-wrap"><span>&nbsp;</span>
             <span class="chk"><input type="checkbox" id="s-charttotal" /> Общий балл над столбцами диаграммы</span>

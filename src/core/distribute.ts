@@ -76,7 +76,7 @@ export function distribute(total: number, maxes: number[], strategy: Strategy, r
  * доводится до точной суммы, затем 1–2 случайных перестановки балла (с сидом) — чтобы строки
  * не были одинаковыми.
  */
-export function distributeTargets(total: number, maxes: number[], targets: (number | undefined)[], rng: () => number = Math.random): number[] {
+export function distributeTargets(total: number, maxes: number[], targets: (number | undefined)[], rng: () => number = Math.random, spread = 1): number[] {
   const n = maxes.length;
   if (!n) return [];
   const sum = maxes.reduce((a, b) => a + b, 0);
@@ -92,7 +92,7 @@ export function distributeTargets(total: number, maxes: number[], targets: (numb
   const order = raw.map((r, i) => ({ i, f: r - Math.floor(r), r: rng() })).sort((a, b) => b.f - a.f || a.r - b.r).map((x) => x.i);
   for (let pass = 0; rest > 0 && pass < 50; pass++) for (const i of order) { if (rest > 0 && out[i] < maxes[i]) { out[i]++; rest--; } }
   // лёгкая случайность: перенести 1 балл между двумя колонками, не выходя за пределы
-  const swaps = 1 + Math.floor(rng() * 2);
+  const swaps = spread <= 0 ? 0 : Math.round(spread) + Math.floor(rng() * 2);
   for (let s = 0; s < swaps; s++) {
     const a = Math.floor(rng() * n), b = Math.floor(rng() * n);
     if (a !== b && out[a] > 0 && out[b] < maxes[b] && out[a] > Math.floor(maxes[a] * 0.3)) { out[a]--; out[b]++; }

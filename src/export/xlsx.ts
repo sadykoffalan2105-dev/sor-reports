@@ -15,6 +15,7 @@ const thin: Partial<ExcelJS.Borders> = {
 };
 const center: Partial<ExcelJS.Alignment> = { horizontal: 'center', vertical: 'middle', wrapText: true };
 const GREEN = 'FF92D050';
+const YELLOW = 'FFFFFF00'; // строки сдававших позже (форма 1/2)
 
 /** Раскладка колонок листа (1-based). */
 export interface Layout {
@@ -145,13 +146,15 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
     ws.getCell(rn, 2).alignment = { vertical: 'middle' };
     if (row.absent) {
       if (L.reason) {
-        ws.getCell(rn, L.reason).value = r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал';
+        ws.getCell(rn, L.reason).value = row.reason || (r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал');
+        if (row.retake) ws.getCell(rn, L.date!).value = row.retake;
       } else {
         ws.mergeCells(rn, L.scoreStart, rn, L.grade);
         ws.getCell(rn, L.scoreStart).value = r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал';
         ws.getCell(rn, L.scoreStart).alignment = center;
       }
     } else {
+      if (L.reason) { ws.getCell(rn, L.reason).value = row.reason ?? ''; ws.getCell(rn, L.date!).value = row.retake ?? ''; }
       row.scores.forEach((v, ci) => { ws.getCell(rn, L.scoreStart + ci).value = v; });
       const tot = ws.getCell(rn, L.total);
       tot.value = { formula: `SUM(${A(L.scoreStart)}${rn}:${A(L.scoreEnd)}${rn})`, result: row.total };
@@ -164,6 +167,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
       const cell = ws.getCell(rn, cc);
       cell.border = thin; cell.font = font;
       if (cc !== 2) cell.alignment = center;
+      if (row.reason && !row.absent) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: YELLOW } };
     }
   });
   const lastRow = first + r.rows.length - 1;
@@ -230,7 +234,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
 
   // фигуры: фиолетовая цифра варианта справа от заголовка и блок «Примечание» под подписью
   const shapes: DrawingShape[] = [];
-  const variant = s.variantLabel.trim() || (r.absentColumns ? '2' : '1');
+  const variant = s.variantLabel.trim() || (r.absentColumns ? '1/2' : '1');
   if (Ly.showVariant && Ly.showTitle) shapes.push({ kind: 'variant', text: variant, anchor: { fromCol: titleEnd, fromRow: 0, toCol: L.last + 1, toRow: 1 } });
   const noteLines = Ly.showNote ? s.noteText.split(/\r?\n/).map((x) => x.trim()).filter(Boolean) : [];
   if (noteLines.length) {
