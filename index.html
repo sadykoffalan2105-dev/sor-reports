@@ -64,6 +64,7 @@
             <button class="btn small" id="preset-new" type="button" title="Новая пустая разбаловка">＋ Новая</button>
             <button class="btn small" id="preset-dup" type="button">Дублировать</button>
             <input id="preset-name" class="preset-name" placeholder="название разбаловки" title="Название выбранной разбаловки" />
+            <label class="inline">Уровни под критериями <select id="s-bands" title="Колонки-диапазоны под каждым критерием: балл ставится в свой диапазон (как в форме 2026)"><option value="0">нет</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
             <button class="btn small ghost" id="preset-del" type="button">Удалить</button>
             <button class="btn small accent" id="photo-btn" type="button" title="Распознать рукописную разбаловку и лестницу с фотографии">📷 Распознать по фото</button>
           </div>
@@ -143,7 +144,7 @@
               <label class="chk"><input type="checkbox" id="l-showNote" /> Примечание</label>
               <label class="chk"><input type="checkbox" id="l-showChart" /> Диаграмма</label>
             </fieldset>
-            <label class="full">Шаблон заголовка <small>подстановки: {школа} {вид} {номер} {предмет} {группа} {класс} {год} {учитель}</small>
+            <label class="full">Шаблон заголовка <small>подстановки: {школа} {вид} {номер} {макс} {предмет} {группа} {класс} {год} {учитель}; перенос строки — Enter</small>
               <textarea id="l-title" rows="2"></textarea>
             </label>
             <label class="full">Заголовок диаграммы <input id="l-chart-title" /></label>

@@ -29,6 +29,7 @@ export const LAYOUT_PRESETS: { name: string; patch: Partial<ReportLayout> }[] = 
   { name: 'Школа № 300 — полный', patch: {} },
   { name: 'Только таблица', patch: { showTitle: false, showInfo: false, showVariant: false, showAvg: false, showPct: false, showCounts: false, showEff: false, showSignature: false, showNote: false, showChart: false } },
   { name: 'Таблица и итоги, без диаграммы', patch: { showVariant: false, showNote: false, showChart: false } },
+  { name: 'Форма с уровнями (2026)', patch: { titleTemplate: '{школа}\nОТЧЁТНЫЙ РЕЗУЛЬТАТЫ\nпроверка знаний {вид}-{номер}({макс}) по предмету {предмет} “{группа}”\n{класс} класса за {год} учебный год', chartTitleTemplate: '{вид}-{номер} по предмету {предмет}, {класс} класс', showVariant: false, showNote: false, labels: { name: 'Фамилия имя ученика', total: 'общий балл', percent: 'В%', grade: 'Оценка', signature: 'Учитель:' } } },
   { name: 'Короткая шапка', patch: { titleTemplate: '{вид}-{номер} по предмету «{предмет}», {класс} класс ({группа}), {год} учебный год', showVariant: false, showNote: false } },
 ];
 

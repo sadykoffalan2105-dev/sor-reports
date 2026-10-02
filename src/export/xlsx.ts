@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
-import type { ClassReport, Settings } from '../core/types.ts';
-import { taskHeader, columnName } from '../core/structure.ts';
+import type { ClassReport, Settings, ScoreColumn } from '../core/types.ts';
+import { taskHeader, columnName, bandRanges, bandLabel, bandIndex } from '../core/structure.ts';
 import { injectCharts, type ChartJob, type ChartSeries, type DrawingShape } from './chart.ts';
 
 /** 1 → A, 27 → AA. */
@@ -23,14 +23,18 @@ export interface Layout {
   scoreStart: number; scoreEnd: number;
   total: number; percent: number; grade: number;
   last: number;
+  bands: number;        // уровней под критерием (1 — нет)
+  phys: number[];       // первая физическая колонка каждого критерия
+  helper: number;       // скрытые колонки с суммой уровней (для диаграммы), 0 — нет
 }
 export function layoutFor(r: ClassReport): Layout {
+  const k = Math.max(1, r.bands || 1);
   let c = 3;
   const l: Partial<Layout> = {};
   if (r.absentColumns) { l.reason = c++; l.date = c++; }
-  l.scoreStart = c; c += r.columns.length; l.scoreEnd = c - 1;
+  l.scoreStart = c; l.phys = r.columns.map((_, i) => c + i * k); c += r.columns.length * k; l.scoreEnd = c - 1;
   l.total = c++; l.percent = c++; l.grade = c++;
-  l.last = l.grade;
+  l.last = l.grade; l.bands = k; l.helper = k > 1 ? l.last + 1 : 0;
   return l as Layout;
 }
 
@@ -69,7 +73,8 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   ws.getColumn(1).width = 3.5;
   ws.getColumn(2).width = 27.4;
   if (L.reason) { ws.getColumn(L.reason).width = 14; ws.getColumn(L.date!).width = 11; }
-  for (let c = L.scoreStart; c <= L.scoreEnd; c++) ws.getColumn(c).width = 7.25;
+  for (let c = L.scoreStart; c <= L.scoreEnd; c++) ws.getColumn(c).width = L.bands > 1 ? 4.6 : 7.25;
+  if (L.helper) r.columns.forEach((_, ci) => { ws.getColumn(L.helper + ci).width = 6; ws.getColumn(L.helper + ci).hidden = true; });
   ws.getColumn(L.total).width = 7.25;
   ws.getColumn(L.percent).width = 7;
   ws.getColumn(L.grade).width = 10;
@@ -108,8 +113,8 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   }
 
   // строки 5–6: заголовки таблицы
-  const H1 = 5, H2 = 6;
-  const head = (c1: number, c2: number, text: string, r1 = H1, r2 = H2) => {
+  const H1 = 5, H2 = 6, H3 = 7, HB = L.bands > 1 ? H3 : H2; // HB — нижняя строка шапки
+  const head = (c1: number, c2: number, text: string, r1 = H1, r2 = HB) => {
     if (r1 !== r2 || c1 !== c2) ws.mergeCells(r1, c1, r2, c2);
     const cell = ws.getCell(r1, c1);
     cell.value = text;
@@ -119,12 +124,22 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   head(2, 2, Ly.labels.name);
   if (L.reason) { head(L.reason, L.reason, 'Причина отсутствия'); head(L.date!, L.date!, `Дата сдачи ${r.kind}а`); }
   let c = L.scoreStart;
+  const k = L.bands;
+  const bandCells = (col: ScoreColumn, start: number) => {
+    if (k <= 1) return;
+    bandRanges(col.max, k).forEach((b, bi) => { const cell = ws.getCell(H3, start + bi); cell.value = bandLabel(b); cell.alignment = { ...center, textRotation: 90 }; });
+  };
   r.tasks.forEach((task, ti) => {
     const cols = r.columns.filter((x) => x.taskIndex === ti);
-    if (!task.parts.length) { head(c, c, taskHeader(task, ti)); c++; return; }
-    head(c, c + cols.length - 1, taskHeader(task, ti), H1, H1);
-    cols.forEach((col, i) => { const cell = ws.getCell(H2, c + i); cell.value = col.header; cell.alignment = center; });
-    c += cols.length;
+    if (!task.parts.length) { head(c, c + k - 1, taskHeader(task, ti), H1, k > 1 ? H2 : HB); bandCells(cols[0], c); c += k; return; }
+    head(c, c + cols.length * k - 1, taskHeader(task, ti), H1, H1);
+    cols.forEach((col, i) => {
+      const start = c + i * k;
+      if (k > 1) ws.mergeCells(H2, start, H2, start + k - 1);
+      const cell = ws.getCell(H2, start); cell.value = col.header; cell.alignment = center;
+      bandCells(col, start);
+    });
+    c += cols.length * k;
   });
   head(L.total, L.total, Ly.labels.total);
   head(L.percent, L.percent, Ly.labels.percent);
@@ -134,10 +149,11 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   const hasLabels = r.tasks.some((t) => t.parts.some((p) => p.label?.trim()));
   ws.getRow(H1).height = hasTitles ? 60 : 43.5;
   ws.getRow(H2).height = hasLabels ? 45 : 28.5;
-  for (const rr of [H1, H2]) for (let cc = 1; cc <= L.last; cc++) { const cell = ws.getCell(rr, cc); cell.border = thin; cell.font = font; }
+  if (k > 1) ws.getRow(H3).height = 64;
+  for (const rr of (k > 1 ? [H1, H2, H3] : [H1, H2])) for (let cc = 1; cc <= L.last; cc++) { const cell = ws.getCell(rr, cc); cell.border = thin; cell.font = font; }
 
   // ученики
-  const first = 7;
+  const first = HB + 1;
   const scoreRange = (col: number, r1: number, r2: number) => `${A(col)}${r1}:${A(col)}${r2}`;
   r.rows.forEach((row, i) => {
     const rn = first + i;
@@ -155,7 +171,8 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
       }
     } else {
       if (L.reason) { ws.getCell(rn, L.reason).value = row.reason ?? ''; ws.getCell(rn, L.date!).value = row.retake ?? ''; }
-      row.scores.forEach((v, ci) => { ws.getCell(rn, L.scoreStart + ci).value = v; });
+      row.scores.forEach((v, ci) => { const pc0 = L.phys[ci] + (k > 1 ? bandIndex(v, r.columns[ci].max, k) : 0); ws.getCell(rn, pc0).value = v; });
+      if (L.helper) r.columns.forEach((_, ci) => { ws.getCell(rn, L.helper + ci).value = { formula: `SUM(${A(L.phys[ci])}${rn}:${A(L.phys[ci] + k - 1)}${rn})`, result: row.scores[ci] }; });
       const tot = ws.getCell(rn, L.total);
       tot.value = { formula: `SUM(${A(L.scoreStart)}${rn}:${A(L.scoreEnd)}${rn})`, result: row.total };
       const pc = ws.getCell(rn, L.percent);
@@ -178,12 +195,13 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   const avgRow = Ly.showAvg ? next++ : 0, pctRow = Ly.showPct ? next++ : 0;
   const c5Row = Ly.showCounts ? next++ : 0, c4Row = Ly.showCounts ? next++ : 0, effRow = Ly.showEff ? next++ : 0;
   const gradeRange = scoreRange(L.grade, first, lastRow);
+  const colOf = (cc: number) => { if (cc === L.total) return { ci: -1, max: r.max }; const ci = L.phys.findIndex((p) => cc >= p && cc < p + k); return { ci, max: r.columns[ci]?.max ?? 1 }; };
   if (avgRow) {
     ws.getCell(avgRow, 2).value = 'Сред.балл:';
     for (let cc = L.scoreStart; cc <= L.total; cc++) {
-      const ci = cc - L.scoreStart;
+      const { ci } = colOf(cc);
       const cell = ws.getCell(avgRow, cc);
-      cell.value = { formula: `SUM(${scoreRange(cc, first, lastRow)})/${N}`, result: cc === L.total ? r.avgTotal : r.avg[ci] };
+      cell.value = { formula: `SUM(${scoreRange(cc, first, lastRow)})/${N}`, result: cc === L.total ? r.avgTotal : (k > 1 ? 0 : r.avg[ci]) };
       cell.numFmt = '0.00';
     }
     ws.getCell(avgRow, L.percent).value = { formula: `${A(L.total)}${avgRow}/${r.max}`, result: r.max ? r.avgTotal / r.max : 0 };
@@ -193,10 +211,9 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   if (pctRow) {
     ws.getCell(pctRow, 2).value = 'Процентный показатель';
     for (let cc = L.scoreStart; cc <= L.total; cc++) {
-      const ci = cc - L.scoreStart;
-      const max = cc === L.total ? r.max : r.columns[ci].max;
+      const { ci, max } = colOf(cc);
       const cell = ws.getCell(pctRow, cc);
-      cell.value = { formula: `SUM(${scoreRange(cc, first, lastRow)})/${N}/${max || 1}`, result: max ? (cc === L.total ? r.avgTotal : r.avg[ci]) / max : 0 };
+      cell.value = { formula: `SUM(${scoreRange(cc, first, lastRow)})/${N}/${max || 1}`, result: max ? (cc === L.total ? r.avgTotal : (k > 1 ? 0 : r.avg[ci])) / max : 0 };
       cell.numFmt = '0%';
     }
   }
@@ -243,7 +260,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
 
   // диаграмма — ниже примечания (или подписи)
   const series: ChartSeries[] = r.columns.map((col, ci) => {
-    const cc = L.scoreStart + ci;
+    const cc = L.helper ? L.helper + ci : L.phys[ci];
     const name = columnName(r.tasks, col);
     return { name, valRef: `${sheetRef}!$${A(cc)}$${first}:$${A(cc)}$${lastRow}`, values: r.rows.map((row) => (row.absent ? null : row.scores[ci])) };
   });
@@ -277,6 +294,7 @@ export function shortName(full: string): string {
 /** Собрать книгу: лист на класс + диаграммы. */
 export async function exportWorkbook(reports: ClassReport[], s: Settings): Promise<Uint8Array> {
   const wb = new ExcelJS.Workbook();
+  wb.calcProperties.fullCalcOnLoad = true; // формулы (в т.ч. в скрытых колонках уровней) пересчитать при открытии
   wb.creator = s.teacherShort || 'sor-reports';
   wb.created = new Date();
   const used = new Set<string>();

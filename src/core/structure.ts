@@ -70,6 +70,7 @@ export function parseStructure(text: string): Structure | null {
 export function structureFromText(text: string, prev?: Structure): Structure | null {
   const s = parseStructure(text);
   if (!s || !prev) return s;
+  s.bands = prev.bands;
   s.tasks.forEach((t, i) => {
     const p = prev.tasks[i];
     if (!p) return;
@@ -85,7 +86,23 @@ export function structureToText(s: Structure): string {
 }
 
 export function cloneStructure(s: Structure): Structure {
-  return { tasks: s.tasks.map((t) => ({ title: t.title ?? '', max: t.max, target: t.target, parts: t.parts.map((p) => ({ label: p.label ?? '', max: p.max, target: p.target })) })) };
+  return { bands: s.bands, tasks: s.tasks.map((t) => ({ title: t.title ?? '', max: t.max, target: t.target, parts: t.parts.map((p) => ({ label: p.label ?? '', max: p.max, target: p.target })) })) };
+}
+
+/** Диапазоны уровней под критерием: 5 баллов, 3 уровня → 0-1, 2-3, 4-5; 15 → 0-5, 6-10, 11-15. */
+export function bandRanges(max: number, k: number): { lo: number; hi: number }[] {
+  if (k <= 1 || max <= 0) return [{ lo: 0, hi: max }];
+  const out: { lo: number; hi: number }[] = [];
+  let lo = 0;
+  for (let i = 1; i <= k; i++) { const hi = i === k ? max : Math.floor((max * i) / k); out.push({ lo, hi: Math.max(hi, lo) }); lo = hi + 1; }
+  return out;
+}
+export const bandLabel = (b: { lo: number; hi: number }): string => `${b.lo}-${b.hi} балл`;
+/** В какой уровень попадает балл. */
+export function bandIndex(value: number, max: number, k: number): number {
+  const bs = bandRanges(max, k);
+  const i = bs.findIndex((b) => value >= b.lo && value <= b.hi);
+  return i < 0 ? bs.length - 1 : i;
 }
 
 /** Пересчитать max заданий с критериями. */

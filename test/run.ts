@@ -99,3 +99,11 @@ console.log('записано .out/titles.xlsx', bytes3.length);
   console.log('достройка: 47 =', rows[47].join(' '), '| 41 =', rows[41].join(' '), '| ошибок', errs.length, '| монотонно', mono);
   if (errs.length || !mono) { console.log('✗ достройка лестницы неверна'); process.exitCode = 1; }
 }
+
+// форма с уровнями: 3 колонки-диапазона под каждым критерием
+{
+  const sb = { ...settings, structure: { ...parseStructure('5; 5+15+15+5; 5')!, bands: 3 } };
+  const rb = classes.map((c) => buildReport(c, sb, sb.structure));
+  writeFileSync('.out/bands.xlsx', await exportWorkbook(rb, sb));
+  console.log('записано .out/bands.xlsx; колонок', rb[0].columns.length, 'уровней', rb[0].bands);
+}

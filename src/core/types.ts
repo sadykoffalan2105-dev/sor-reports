@@ -44,7 +44,7 @@ export interface JournalClass {
 export interface Part { label: string; max: number; target?: number }  // target — целевой % для раскидки
 /** Задание: либо одна колонка (parts пустой), либо несколько подколонок. */
 export interface Task { title: string; parts: Part[]; max: number; target?: number }
-export interface Structure { tasks: Task[] }
+export interface Structure { tasks: Task[]; bands?: number } // bands — колонки-уровни под каждым критерием (0/2/3/4)
 
 /** Сохранённая разбаловка с названием (например, «5 класс»). */
 export interface Preset { id: string; name: string; structure: Structure }
@@ -124,6 +124,7 @@ export interface ClassReport {
   max: number;
   columns: ScoreColumn[];
   tasks: Task[];
+  bands: number;         // уровней под критерием (1 — нет)
   rows: ReportRow[];
   participants: number;
   absent: number;

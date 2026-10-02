@@ -1,5 +1,5 @@
 import type { ClassReport, JournalClass, ReportRow, Settings } from './types.ts';
-import { flattenColumns } from './structure.ts';
+import { flattenColumns, structureMax } from './structure.ts';
 import { distribute, distributeTargets, gradeFor, makeRng } from './distribute.ts';
 import { generateLadder, ladderFits, type Ladder } from './ladder.ts';
 import { fillTemplate } from './layout.ts';
@@ -18,14 +18,14 @@ export function sheetNameFor(cls: JournalClass): string {
 }
 
 /** Переменные для шаблонов заголовка. */
-export function titleVars(cls: JournalClass, s: Settings): Record<string, string> {
+export function titleVars(cls: JournalClass, s: Settings, max?: number): Record<string, string> {
   return {
-    'школа': s.school, 'вид': s.kind, 'номер': String(s.number), 'предмет': cls.subject || 'Предмет',
+    'макс': String(max ?? structureMax(s.structure)), 'школа': s.school, 'вид': s.kind, 'номер': String(s.number), 'предмет': cls.subject || 'Предмет',
     'группа': cls.group ?? '', 'класс': cls.className, 'год': cls.year || s.year, 'учитель': s.teacherShort,
   };
 }
-export function buildTitle(cls: JournalClass, s: Settings): string {
-  return fillTemplate(s.layout.titleTemplate, titleVars(cls, s));
+export function buildTitle(cls: JournalClass, s: Settings, max?: number): string {
+  return fillTemplate(s.layout.titleTemplate, titleVars(cls, s, max));
 }
 
 /** «13.02» + учебный год «2025–2026» → «13.02.2026» (сентябрь–декабрь — первый год). */
@@ -74,8 +74,9 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
   const report: ClassReport = {
     classId: cls.id,
     sheetName: sheetNameFor(cls),
-    title: buildTitle(cls, s),
-    chartTitle: fillTemplate(s.layout.chartTitleTemplate, titleVars(cls, s)),
+    title: buildTitle(cls, s, max),
+    chartTitle: fillTemplate(s.layout.chartTitleTemplate, titleVars(cls, s, max)),
+    bands: Math.max(1, structure.bands || 1),
     layout: s.layout,
     className: cls.className, group: cls.group, subject,
     kind: s.kind, number: s.number,

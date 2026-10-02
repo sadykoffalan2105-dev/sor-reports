@@ -3,13 +3,13 @@ import { parseWorkbook, parseManualList, shortTeacherName } from './parse/journa
 import { buildReport, recalcRow, recalcSummary, fullDate } from './core/report.ts';
 import {
   parseStructure, structureFromText, structureToText, structureMax, flattenColumns, taskHeader, taskMax,
-  cloneStructure, normalizeStructure, newPresetId, builtinPresets, columnName,
+  cloneStructure, normalizeStructure, newPresetId, builtinPresets, columnName, bandRanges, bandLabel, bandIndex,
 } from './core/structure.ts';
 import { generateLadder, ladderErrors, ladderFits, fillLadderGaps, type Ladder } from './core/ladder.ts';
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
 import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
-import type { ClassReport, JournalClass, Preset, ReportRow, Settings, Structure } from './core/types.ts';
+import type { ClassReport, JournalClass, Preset, ReportRow, ScoreColumn, Settings, Structure } from './core/types.ts';
 
 /* ---------- состояние ---------- */
 
@@ -252,6 +252,7 @@ function renderPresetBar(): void {
   ($('preset-sel') as HTMLSelectElement).innerHTML = presetOptions(p.id, false);
   ($('preset-del') as HTMLButtonElement).disabled = S().presets.length <= 1;
   ($('preset-name') as HTMLInputElement).value = p.name;
+  ($('s-bands') as HTMLSelectElement).value = String(p.structure.bands || 0);
   const own = state.editGrade ? gradePreset(state.editGrade) : undefined;
   $('edit-hint').textContent = state.editGrade
     ? (own ? `${state.editGrade}-е классы: правится их разбаловка «${own.name}»` : `${state.editGrade}-е классы используют общую разбаловку — правки ниже меняют общую`)
@@ -271,7 +272,8 @@ function renderStructureView(): void {
   const total = structureMax(s);
   ($('s-structure') as HTMLInputElement).value = structureToText(s);
   $('s-structure-view').innerHTML = s.tasks.map((t, i) => `<span class="task">${h(taskHeader(t, i).split('\n')[0])}${t.parts.length ? ' = ' + t.parts.map((p) => `<span class="part">${p.max}</span>`).join('') : ''}</span>`).join('')
-    + `<span class="sum ${total === 50 || total === 40 ? '' : 'bad'}">итого ${total} баллов</span>`;
+    + `<span class="sum ${total === 50 || total === 40 ? '' : 'bad'}">итого ${total} баллов</span>`
+    + ((s.bands ?? 0) > 1 ? `<span class="sum">· уровни под критериями: ${s.bands} (${bandRanges(5, s.bands!).map(bandLabel).join(', ')} для 5 баллов)</span>` : '');
 }
 
 /** Таблица заданий: строка — задание, ячейки — критерии (баллы, название, цель %). */
@@ -432,12 +434,13 @@ function renderTabs(): void {
 function renderFootInto(el: HTMLElement, r: ClassReport): void {
   const lead = r.absentColumns ? '<td></td><td></td>' : '';
   const Ly = r.layout;
+  const k = Math.max(1, r.bands || 1);
   const rows: string[] = [];
-  if (Ly.showAvg) rows.push(`<tr><td></td><td class="lbl">Сред.балл:</td>${lead}${r.avg.map((a) => `<td>${fix(a)}</td>`).join('')}<td>${fix(r.avgTotal)}</td><td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td></tr>`);
-  if (Ly.showPct) rows.push(`<tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td>${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>`);
-  if (Ly.showCounts) rows.push(`<tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td><td colspan="${r.columns.length + 2}"></td></tr>
-    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td><td colspan="${r.columns.length + 2}"></td></tr>`);
-  if (Ly.showEff) rows.push(`<tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${r.columns.length + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`);
+  if (Ly.showAvg) rows.push(`<tr><td></td><td class="lbl">Сред.балл:</td>${lead}${r.avg.map((a) => `<td colspan="${k}">${fix(a)}</td>`).join('')}<td>${fix(r.avgTotal)}</td><td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td></tr>`);
+  if (Ly.showPct) rows.push(`<tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td colspan="${k}">${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>`);
+  if (Ly.showCounts) rows.push(`<tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td><td colspan="${r.columns.length * k + 2}"></td></tr>
+    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td><td colspan="${r.columns.length * k + 2}"></td></tr>`);
+  if (Ly.showEff) rows.push(`<tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${r.columns.length * k + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`);
   el.innerHTML = rows.join('');
 }
 
@@ -499,11 +502,14 @@ function renderPreview(): void {
 
   const Ly = r.layout;
   const extra = r.absentColumns ? `<th rowspan="2">Причина отсутствия</th><th rowspan="2">Дата сдачи ${r.kind}а</th>` : '';
-  let head1 = '', head2 = '';
+  const k = Math.max(1, r.bands || 1);
+  const hs = k > 1 ? 3 : 2; // строк в шапке
+  let head1 = '', head2 = '', head3 = '';
+  const bandHead = (c: ScoreColumn) => (k > 1 ? bandRanges(c.max, k).map((b) => `<th class="vert">${h(bandLabel(b))}</th>`).join('') : '');
   r.tasks.forEach((t, ti) => {
     const cols = r.columns.filter((c) => c.taskIndex === ti);
-    if (!t.parts.length) head1 += `<th rowspan="2">${br(taskHeader(t, ti))}</th>`;
-    else { head1 += `<th colspan="${cols.length}">${br(taskHeader(t, ti))}</th>`; head2 += cols.map((c) => `<th>${br(c.header)}</th>`).join(''); }
+    if (!t.parts.length) { head1 += `<th rowspan="${k > 1 ? 2 : hs}" colspan="${k}">${br(taskHeader(t, ti))}</th>`; head3 += bandHead(cols[0]); }
+    else { head1 += `<th colspan="${cols.length * k}">${br(taskHeader(t, ti))}</th>`; head2 += cols.map((c) => `<th colspan="${k}">${br(c.header)}</th>`).join(''); head3 += cols.map(bandHead).join(''); }
   });
   const REASONS = ['', 'Б', 'П', 'Н', 'У'];
   const reasonCells = (row: ReportRow) => r.absentColumns
@@ -513,9 +519,14 @@ function renderPreview(): void {
   const body = r.rows.map((row, ri) => {
     if (row.absent) {
       const who = r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал';
-      return `<tr class="abs" data-r="${ri}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}<td colspan="${r.columns.length + 3}">${who} · балл вручную: <input type="number" min="0" max="${r.max}" data-act="manual" data-s="${row.studentIndex}" placeholder="—" /></td>${del(row)}</tr>`;
+      return `<tr class="abs" data-r="${ri}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}<td colspan="${r.columns.length * k + 3}">${who} · балл вручную: <input type="number" min="0" max="${r.max}" data-act="manual" data-s="${row.studentIndex}" placeholder="—" /></td>${del(row)}</tr>`;
     }
-    const cells = row.scores.map((v, ci) => `<td><input type="number" min="0" max="${r.columns[ci].max}" value="${v}" data-r="${ri}" data-c="${ci}" /></td>`).join('');
+    const cells = row.scores.map((v, ci) => {
+      const inp = `<input type="number" min="0" max="${r.columns[ci].max}" value="${v}" data-r="${ri}" data-c="${ci}" />`;
+      if (k <= 1) return `<td>${inp}</td>`;
+      const bi = bandIndex(v, r.columns[ci].max, k);
+      return Array.from({ length: k }, (_, j) => (j === bi ? `<td class="band">${inp}</td>` : '<td class="band"></td>')).join('');
+    }).join('');
     return `<tr data-r="${ri}" class="${row.reason ? 'retake' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total">${row.total}</td><td data-k="pct">${pct(row.percent)}</td><td data-k="grade">${row.grade}</td>${del(row)}</tr>`;
   }).join('');
   const footEl = document.createElement('tfoot');
@@ -528,8 +539,8 @@ function renderPreview(): void {
       <b>Отсутствовали: ${r.absent}</b><span>Дата внесения в emaktab.uz: ${h(r.dateEntered ?? '')}</span>
       ${r.absentNames.length ? `<span class="absent">Без балла: ${h(r.absentNames.join(', '))}</span>` : ''}</div>` : ''}
     <table class="rep"><thead>
-      <tr><th rowspan="2">№</th><th rowspan="2">${h(Ly.labels.name)}</th>${extra}${head1}<th rowspan="2">${h(Ly.labels.total)}</th><th rowspan="2">${h(Ly.labels.percent)}</th><th rowspan="2">${h(Ly.labels.grade)}</th><th rowspan="2" class="delc"></th></tr>
-      <tr>${head2}</tr></thead>
+      <tr><th rowspan="${hs}">№</th><th rowspan="${hs}">${h(Ly.labels.name)}</th>${extra.replace(/rowspan="2"/g, `rowspan="${hs}"`)}${head1}<th rowspan="${hs}">${h(Ly.labels.total)}</th><th rowspan="${hs}">${h(Ly.labels.percent)}</th><th rowspan="${hs}">${h(Ly.labels.grade)}</th><th rowspan="${hs}" class="delc"></th></tr>
+      <tr>${head2}</tr>${k > 1 ? `<tr>${head3}</tr>` : ''}</thead>
       <tbody>${body}</tbody><tfoot>${footEl.innerHTML}</tfoot></table>
     ${Ly.showSignature ? `<p class="sign">${h(Ly.labels.signature)} ${h(r.teacherShort)}__________________ &nbsp;&nbsp;&nbsp; Подпись ________</p>` : ''}
     ${Ly.showNote && S().noteText.trim() ? `<div class="note">${S().noteText.trim().split('\n').map((l, i) => (i === 0 ? `<b>${h(l)}</b>` : `<div>${h(l)}</div>`)).join('')}</div>` : ''}
@@ -793,6 +804,12 @@ function bindSettings(): void {
   });
   $('struct-editor').addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button[data-act]') as HTMLElement | null; if (b) onStructClick(b); });
 
+  $('s-bands').addEventListener('change', () => {
+    const st = cloneStructure(editingStructure());
+    const n = Number(($('s-bands') as HTMLSelectElement).value) || 0;
+    st.bands = n > 1 ? n : undefined;
+    setStructure(st); rebuild(); render();
+  });
   $('s-reseed').addEventListener('click', () => { ($('s-seed') as HTMLInputElement).value = String(Math.floor(Math.random() * 1e6)); apply(); });
 
   // раскладка по итоговому баллу
@@ -915,6 +932,7 @@ function bindEvents(): void {
   });
   $('preview').addEventListener('change', (e) => { // причина, дата сдачи, ручной балл
     const t = e.target as HTMLInputElement;
+    if (t.matches('input[data-r]')) { if ((state.classes[state.active]?.report?.bands ?? 1) > 1) renderPreview(); return; }
     const act = t.dataset.act; if (!act || t.dataset.s == null) return;
     const cs = state.classes[state.active]; if (!cs) return;
     const st = cs.cls.students[Number(t.dataset.s)]; if (!st) return;
