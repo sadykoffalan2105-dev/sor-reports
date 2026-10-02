@@ -263,3 +263,14 @@ table.lad { width: auto; min-width: 60%; }
 .st .part-cell select[data-f="pbands"] { grid-column: 1 / -1; font-size: 11px; padding: 2px 4px; background: transparent; border-color: transparent; color: var(--muted); }
 .st .part-cell select[data-f="pbands"]:hover { border-color: var(--line); background: #fff; }
 .st td select[data-f="tbands"] { font-size: 12px; padding: 3px 4px; width: auto; }
+
+/* подкритерии */
+.st .part-cell { position: relative; }
+.st .part-cell .pnum { grid-column: 1 / -1; font-size: 10px; color: var(--muted); line-height: 1; }
+.st .part-cell .tiny { grid-column: 1 / -1; padding: 1px 4px; font-size: 11px; color: var(--muted); border-color: transparent; }
+.st .part-cell .tiny:hover { color: var(--accent); border-color: var(--accent); }
+.st .part-group { border: 1px dashed var(--accent); border-radius: 10px; padding: 6px; background: #f3f8f4; display: grid; gap: 6px; }
+.st .part-group .pg-head { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.st .part-group .pg-head input { flex: 1 1 120px; padding: 3px 6px; font-size: 12px; min-width: 90px; }
+.st .part-group .pg-sum { color: var(--muted); white-space: nowrap; }
+.st .part-group .parts { gap: 4px; }

@@ -3,13 +3,14 @@ import { parseWorkbook, parseManualList, shortTeacherName } from './parse/journa
 import { buildReport, recalcRow, recalcSummary, fullDate } from './core/report.ts';
 import {
   parseStructure, structureFromText, structureToText, structureMax, flattenColumns, taskHeader, taskMax,
-  cloneStructure, normalizeStructure, newPresetId, builtinPresets, columnName, bandRanges, bandLabel, bandIndex,
+  cloneStructure, normalizeStructure, newPresetId, builtinPresets, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
 } from './core/structure.ts';
+import { buildHeader } from './core/header.ts';
 import { generateLadder, ladderErrors, ladderFits, fillLadderGaps, type Ladder } from './core/ladder.ts';
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
 import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
-import type { ClassReport, JournalClass, Preset, ReportRow, ScoreColumn, Settings, Structure } from './core/types.ts';
+import type { ClassReport, JournalClass, Part, Preset, ReportRow, Settings, Structure, Task } from './core/types.ts';
 
 /* ---------- состояние ---------- */
 
@@ -281,17 +282,31 @@ function renderStructureView(): void {
 
 const bandOpts = (v: number | undefined): string => [['', 'ур.: общие'], ['0', 'ур.: нет'], ['2', 'ур.: 2'], ['3', 'ур.: 3'], ['4', 'ур.: 4']].map(([val, lab]) => `<option value="${val}" ${String(v ?? '') === val ? 'selected' : ''}>${lab}</option>`).join('');
 
-/** Таблица заданий: строка — задание, ячейки — критерии (баллы, название, цель %, уровни). */
+/** Критерий или группа подкритериев (рекурсивно). */
+function renderPart(p: Part, path: number[]): string {
+  const ps = path.join('.');
+  if (p.parts?.length) {
+    return `<div class="part-group" data-path="${ps}">
+      <div class="pg-head"><b>${pathNum(path)}</b><input type="text" data-f="plabel" value="${h(p.label ?? '')}" placeholder="название группы" title="Название группы критериев в шапке" /><span class="pg-sum" title="Сумма подкритериев"><b data-k="psum">${partMax(p)}</b> б.</span><button class="x" type="button" data-act="del-part" title="Убрать группу с подкритериями">✕</button></div>
+      <div class="parts">${p.parts.map((c, i) => renderPart(c, [...path, i])).join('')}<button class="mini" type="button" data-act="add-part" title="Добавить подкритерий в группу">＋ критерий</button></div>
+    </div>`;
+  }
+  return `<div class="part-cell" data-path="${ps}">
+    <span class="pnum">${pathNum(path)}</span>
+    <input type="number" data-f="pmax" min="0" value="${p.max}" title="Баллы критерия ${pathNum(path)} (Enter — следующий критерий)" />
+    <button class="x" type="button" data-act="del-part" title="Убрать критерий">✕</button>
+    <input type="text" data-f="plabel" value="${h(p.label ?? '')}" placeholder="название" title="Название критерия в шапке" />
+    <input type="number" data-f="ptarget" min="0" max="100" value="${p.target ?? ''}" placeholder="цель %" title="Целевой % для раскидки «по целям»" />
+    <select data-f="pbands" title="Уровни под этим критерием">${bandOpts(p.bands)}</select>
+    <button class="mini tiny" type="button" data-act="add-sub" title="Разделить на подкритерии (критерий в критерии)">＋ под</button>
+  </div>`;
+}
+
+/** Таблица заданий: строка — задание, ячейки — критерии (с подкритериями любой глубины). */
 function renderStructureEditor(): void {
   const s = editingStructure();
   const rows = s.tasks.map((t, ti) => {
-    const parts = t.parts.map((p, pi) => `<div class="part-cell" data-t="${ti}" data-p="${pi}">
-        <input type="number" data-f="pmax" min="0" value="${p.max}" title="Баллы критерия ${ti + 1}.${pi + 1} (Enter — следующий критерий)" />
-        <button class="x" type="button" data-act="del-part" title="Убрать критерий">✕</button>
-        <input type="text" data-f="plabel" value="${h(p.label ?? '')}" placeholder="название" title="Название критерия в шапке" />
-        <input type="number" data-f="ptarget" min="0" max="100" value="${p.target ?? ''}" placeholder="цель %" title="Целевой % для раскидки «по целям»" />
-        <select data-f="pbands" title="Уровни под этим критерием">${bandOpts(p.bands)}</select>
-      </div>`).join('');
+    const parts = t.parts.map((p, pi) => renderPart(p, [ti, pi])).join('');
     return `<tr class="task-row" data-t="${ti}">
       <td class="n">${ti + 1}</td>
       <td class="ttl"><input type="text" data-f="title" value="${h(t.title ?? '')}" placeholder="название в шапке (необязательно)" /></td>
@@ -304,10 +319,15 @@ function renderStructureEditor(): void {
   }).join('');
   const total = structureMax(s);
   const ok = total === 50 || total === 40;
-  $('struct-editor').innerHTML = `<table class="st"><thead><tr><th>№</th><th>Название в шапке</th><th>Критерии: баллы · название · цель % · уровни</th><th>Баллы</th><th>Цель %</th><th>Уровни</th><th></th></tr></thead>
+  $('struct-editor').innerHTML = `<table class="st"><thead><tr><th>№</th><th>Название в шапке</th><th>Критерии: баллы · название · цель % · уровни · «＋ под» — подкритерии</th><th>Баллы</th><th>Цель %</th><th>Уровни</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
     <tfoot><tr><td colspan="3"><button class="mini" type="button" data-act="add-task">＋ задание</button></td><td class="n"><b data-k="total">${total}</b></td><td colspan="3" class="${ok ? 'ok' : 'bad'}" data-k="total-note">${ok ? '✓ итого' : 'обычно СОР = 50, СОЧ = 40'}</td></tr></tfoot></table>`;
 }
+
+const pathOf = (el: Element | null): number[] | null => {
+  const node = el?.closest('[data-path]') as HTMLElement | null;
+  return node ? node.dataset.path!.split('.').map(Number) : null;
+};
 
 /** Ввод в поле редактора: обновить данные без перерисовки таблицы. */
 function onStructInput(t: HTMLInputElement): void {
@@ -325,13 +345,14 @@ function onStructInput(t: HTMLInputElement): void {
   else if (f === 'tmax') task.max = num(t.value);
   else if (f === 'ttarget') task.target = pctv(t.value);
   else if (f === 'plabel' || f === 'pmax' || f === 'ptarget' || f === 'pbands') {
-    const pi = Number((t.closest('.part-cell') as HTMLElement).dataset.p);
-    const part = task.parts[pi]; if (!part) return;
+    const path = pathOf(t); const part = path && (nodeAt(st, path) as Part | undefined);
+    if (!part) return;
     if (f === 'plabel') part.label = t.value; else if (f === 'ptarget') part.target = pctv(t.value); else if (f === 'pbands') part.bands = bandsV(t.value); else part.max = num(t.value);
   } else return;
   setStructure(st);
   const cur = editingStructure();
   const sum = tr.querySelector('[data-k="tsum"]'); if (sum) sum.textContent = String(taskMax(cur.tasks[ti]));
+  tr.querySelectorAll('.part-group').forEach((g) => { const path = pathOf(g); const node = path && (nodeAt(cur, path) as Part | undefined); const el = g.querySelector('[data-k="psum"]'); if (node && el) el.textContent = String(partMax(node)); });
   const total = structureMax(cur); const ok = total === 50 || total === 40;
   const ed = $('struct-editor');
   ed.querySelector('[data-k="total"]')!.textContent = String(total);
@@ -346,19 +367,28 @@ function onStructClick(btn: HTMLElement): void {
   const act = btn.dataset.act;
   const tr = btn.closest('tr.task-row') as HTMLElement | null;
   const ti = tr ? Number(tr.dataset.t) : -1;
+  const task = st.tasks[ti] as Task | undefined;
   if (act === 'add-task') st.tasks.push({ title: '', parts: [], max: 5 });
   else if (act === 'del-task' && st.tasks.length > 1) st.tasks.splice(ti, 1);
   else if (act === 'up' && ti > 0) [st.tasks[ti - 1], st.tasks[ti]] = [st.tasks[ti], st.tasks[ti - 1]];
   else if (act === 'down' && ti < st.tasks.length - 1) [st.tasks[ti + 1], st.tasks[ti]] = [st.tasks[ti], st.tasks[ti + 1]];
-  else if (act === 'add-part') {
-    const t = st.tasks[ti];
-    if (!t.parts.length) t.parts.push({ label: '', max: t.max });
-    t.parts.push({ label: '', max: 5 });
-  } else if (act === 'del-part') {
-    const pi = Number((btn.closest('.part-cell') as HTMLElement).dataset.p);
-    const t = st.tasks[ti];
-    t.parts.splice(pi, 1);
-    if (t.parts.length === 1) { t.max = t.parts[0].max; t.parts = []; }
+  else if (act === 'add-part' && task) {
+    const group = btn.closest('.part-group') as HTMLElement | null; // кнопка внутри группы — подкритерий, иначе — критерий задания
+    const parent = group ? (nodeAt(st, group.dataset.path!.split('.').map(Number)) as Part) : task;
+    if (parent === task && !task.parts.length) task.parts.push({ label: '', max: task.max });
+    (parent.parts ??= []).push({ label: '', max: 5 });
+  } else if (act === 'add-sub' && task) { // критерий → группа из двух подкритериев
+    const path = pathOf(btn); const part = path && (nodeAt(st, path) as Part | undefined);
+    if (!part || part.parts?.length) return;
+    part.parts = [{ label: '', max: part.max }, { label: '', max: 5 }];
+  } else if (act === 'del-part' && task) {
+    const path = pathOf(btn); if (!path) return;
+    const parent = path.length > 2 ? (nodeAt(st, path.slice(0, -1)) as Part) : task;
+    const list = parent.parts ?? [];
+    list.splice(path[path.length - 1], 1);
+    if (parent !== task && list.length <= 1) { // группа из одного — снова обычный критерий
+      const only = list[0]; parent.max = only ? partMax(only) : parent.max; delete (parent as Part).parts;
+    } else if (parent === task && task.parts.length === 1 && !task.parts[0].parts?.length) { task.max = task.parts[0].max; task.parts = []; }
   } else return;
   setStructure(st);
   rebuild(); render();
@@ -378,7 +408,7 @@ function setKnownRow(key: string, t: number, scores: number[]): void {
 function ladderHead(key: string): string {
   const st = parseStructure(key)!;
   const cols = flattenColumns(st);
-  return `<tr><th class="tot">Балл</th>${cols.map((c) => `<th title="${h(taskHeader(st.tasks[c.taskIndex], c.taskIndex))}">${c.partIndex < 0 ? `${c.taskIndex + 1} зд` : `${c.taskIndex + 1}.${c.partIndex + 1}`}<br><small>${c.max}</small></th>`).join('')}<th>Σ</th><th></th></tr>`;
+  return `<tr><th class="tot">Балл</th>${cols.map((c) => `<th title="${h(taskHeader(st.tasks[c.taskIndex], c.taskIndex))}">${c.path.length === 1 ? `${c.path[0] + 1} зд` : pathNum(c.path)}<br><small>${c.max}</small></th>`).join('')}<th>Σ</th><th></th></tr>`;
 }
 
 /** Строки учителя (компактно) + статус. */
@@ -512,23 +542,12 @@ function renderPreview(): void {
 
   const Ly = r.layout;
   const extra = r.absentColumns ? `<th rowspan="2">Причина отсутствия</th><th rowspan="2">Дата сдачи ${r.kind}а</th>` : '';
-  const ks = r.columns.map((c) => Math.max(1, c.bands || 1));
-  const k = Math.max(1, ...ks);
-  const physTotal = ks.reduce((a, b) => a + b, 0);
-  const hs = k > 1 ? 3 : 2; // строк в шапке
-  let head1 = '', head2 = '', head3 = '';
-  const bandHead = (c: ScoreColumn, kc: number) => (kc > 1 ? bandRanges(c.max, kc).map((b) => `<th class="vert">${h(bandLabel(b))}</th>`).join('') : '');
-  r.tasks.forEach((t, ti) => {
-    const cols = r.columns.filter((c) => c.taskIndex === ti);
-    const idx = r.columns.indexOf(cols[0]);
-    const span = cols.reduce((a, _, j) => a + ks[idx + j], 0);
-    if (!t.parts.length) { const kc = ks[idx]; head1 += `<th rowspan="${kc > 1 ? 2 : hs}" colspan="${kc}">${br(taskHeader(t, ti, r.headerStyle))}</th>`; head3 += bandHead(cols[0], kc); }
-    else {
-      head1 += `<th colspan="${span}">${br(taskHeader(t, ti, r.headerStyle))}</th>`;
-      head2 += cols.map((c, j) => `<th colspan="${ks[idx + j]}" ${ks[idx + j] > 1 || hs === 2 ? '' : 'rowspan="2"'}>${br(c.header)}</th>`).join('');
-      head3 += cols.map((c, j) => bandHead(c, ks[idx + j])).join('');
-    }
-  });
+  const grid = buildHeader(r.structure, r.columns);
+  const ks = grid.kOf;
+  const physTotal = grid.physTotal;
+  const hs = grid.rows; // строк в шапке
+  const headRows: string[] = Array.from({ length: hs }, () => '');
+  for (const cell of grid.cells) headRows[cell.row] += `<th ${cell.rowSpan > 1 ? `rowspan="${cell.rowSpan}"` : ''} ${cell.colSpan > 1 ? `colspan="${cell.colSpan}"` : ''} class="${cell.vertical ? 'vert' : ''}">${br(cell.text)}</th>`;
   const REASONS = ['', 'Б', 'П', 'Н', 'У'];
   const reasonCells = (row: ReportRow) => r.absentColumns
     ? `<td><select data-act="reason" data-s="${row.studentIndex}" title="Причина отсутствия: Б — болел, П — пропуск, Н — не был, У — уважительная">${REASONS.map((x) => `<option value="${x}" ${x === (row.reason ?? '') ? 'selected' : ''}>${x || '—'}</option>`).join('')}</select></td><td><input type="date" data-act="retake" data-s="${row.studentIndex}" value="${toIso(row.retake)}" title="Дата сдачи" /></td>`
@@ -558,8 +577,8 @@ function renderPreview(): void {
       <b>Отсутствовали: ${r.absent}</b><span>Дата внесения в emaktab.uz: ${h(r.dateEntered ?? '')}</span>
       ${r.absentNames.length ? `<span class="absent">Без балла: ${h(r.absentNames.join(', '))}</span>` : ''}</div>` : ''}
     <table class="rep"><thead>
-      <tr><th rowspan="${hs}">№</th><th rowspan="${hs}">${h(Ly.labels.name)}</th>${extra.replace(/rowspan="2"/g, `rowspan="${hs}"`)}${head1}<th rowspan="${hs}">${h(Ly.labels.total)}</th><th rowspan="${hs}">${h(Ly.labels.percent)}</th><th rowspan="${hs}">${h(Ly.labels.grade)}</th><th rowspan="${hs}" class="delc"></th></tr>
-      <tr>${head2}</tr>${k > 1 ? `<tr>${head3}</tr>` : ''}</thead>
+      <tr><th rowspan="${hs}">№</th><th rowspan="${hs}">${h(Ly.labels.name)}</th>${extra.replace(/rowspan="2"/g, `rowspan="${hs}"`)}${headRows[0]}<th rowspan="${hs}">${h(Ly.labels.total)}</th><th rowspan="${hs}">${h(Ly.labels.percent)}</th><th rowspan="${hs}">${h(Ly.labels.grade)}</th><th rowspan="${hs}" class="delc"></th></tr>
+      ${headRows.slice(1).map((x) => `<tr>${x}</tr>`).join('')}</thead>
       <tbody>${body}</tbody><tfoot>${footEl.innerHTML}</tfoot></table>
     ${Ly.showSignature ? `<p class="sign">${h(Ly.labels.signature)} ${h(r.teacherShort)}__________________ &nbsp;&nbsp;&nbsp; Подпись ________</p>` : ''}
     ${Ly.showNote && S().noteText.trim() ? `<div class="note">${S().noteText.trim().split('\n').map((l, i) => (i === 0 ? `<b>${h(l)}</b>` : `<div>${h(l)}</div>`)).join('')}</div>` : ''}

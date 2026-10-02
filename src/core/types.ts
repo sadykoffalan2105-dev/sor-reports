@@ -41,7 +41,8 @@ export interface JournalClass {
 }
 
 /** Подзадание (критерий) с максимумом баллов. */
-export interface Part { label: string; max: number; target?: number; bands?: number }  // target — целевой %; bands — уровни (undefined = общие, 0 = нет)
+/** Критерий; parts — подкритерии (баллы группы = их сумма). target — целевой %; bands — уровни (undefined = общие, 0 = нет). */
+export interface Part { label: string; max: number; target?: number; bands?: number; parts?: Part[] }
 /** Задание: либо одна колонка (parts пустой), либо несколько подколонок. */
 export interface Task { title: string; parts: Part[]; max: number; target?: number; bands?: number }
 export type HeaderStyle = 'full' | 'short';
@@ -93,6 +94,7 @@ export interface ScoreColumn {
   key: string;
   taskIndex: number;
   partIndex: number;     // -1 если задание без подколонок
+  path: number[];        // [задание, критерий, подкритерий…]
   header: string;        // подпись в строке 6 («5 баллов») или пусто
   max: number;
   target?: number;       // целевой % (стратегия «по целям»)
@@ -127,6 +129,7 @@ export interface ClassReport {
   max: number;
   columns: ScoreColumn[];
   tasks: Task[];
+  structure: Structure;  // разбаловка отчёта (для шапки)
   bands: number;         // максимум уровней по колонкам (1 — нет; >1 — трёхъярусная шапка)
   headerStyle: HeaderStyle;
   rows: ReportRow[];

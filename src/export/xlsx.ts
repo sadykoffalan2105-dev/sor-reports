@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
-import type { ClassReport, Settings, ScoreColumn } from '../core/types.ts';
-import { taskHeader, columnName, bandRanges, bandLabel, bandIndex } from '../core/structure.ts';
+import type { ClassReport, Settings } from '../core/types.ts';
+import { columnName, bandIndex } from '../core/structure.ts';
+import { buildHeader } from '../core/header.ts';
 import { injectCharts, type ChartJob, type ChartSeries, type DrawingShape } from './chart.ts';
 
 /** 1 → A, 27 → AA. */
@@ -115,7 +116,8 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   }
 
   // строки 5–6: заголовки таблицы
-  const H1 = 5, H2 = 6, H3 = 7, HB = L.bands > 1 ? H3 : H2; // HB — нижняя строка шапки
+  const grid = buildHeader(r.structure, r.columns);
+  const H1 = 5, HB = H1 + grid.rows - 1; // HB — нижняя строка шапки
   const head = (c1: number, c2: number, text: string, r1 = H1, r2 = HB) => {
     if (r1 !== r2 || c1 !== c2) ws.mergeCells(r1, c1, r2, c2);
     const cell = ws.getCell(r1, c1);
@@ -125,36 +127,24 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   head(1, 1, '№');
   head(2, 2, Ly.labels.name);
   if (L.reason) { head(L.reason, L.reason, 'Причина отсутствия'); head(L.date!, L.date!, `Дата сдачи ${r.kind}а`); }
-  let c = L.scoreStart;
-  const k = L.bands;
-  const bandCells = (col: ScoreColumn, start: number, kc: number) => {
-    if (kc <= 1) return;
-    bandRanges(col.max, kc).forEach((b, bi) => { const cell = ws.getCell(H3, start + bi); cell.value = bandLabel(b); cell.alignment = { ...center, textRotation: 90 }; });
-  };
-  r.tasks.forEach((task, ti) => {
-    const cols = r.columns.filter((x) => x.taskIndex === ti);
-    const idx = r.columns.indexOf(cols[0]);
-    const span = cols.reduce((a, _, j) => a + L.kOf[idx + j], 0);
-    if (!task.parts.length) { const kc = L.kOf[idx]; head(c, c + kc - 1, taskHeader(task, ti, r.headerStyle), H1, kc > 1 ? H2 : HB); bandCells(cols[0], c, kc); c += kc; return; }
-    head(c, c + span - 1, taskHeader(task, ti, r.headerStyle), H1, H1);
-    cols.forEach((col, i) => {
-      const kc = L.kOf[idx + i]; const start = L.phys[idx + i];
-      if (kc > 1) ws.mergeCells(H2, start, H2, start + kc - 1); else if (k > 1) ws.mergeCells(H2, start, H3, start);
-      const cell = ws.getCell(H2, start); cell.value = col.header; cell.alignment = center;
-      bandCells(col, start, kc);
-    });
-    c += span;
-  });
+  for (const cell of grid.cells) {
+    const r1 = H1 + cell.row, r2 = r1 + cell.rowSpan - 1, c1 = L.scoreStart + cell.col, c2 = c1 + cell.colSpan - 1;
+    if (r1 !== r2 || c1 !== c2) ws.mergeCells(r1, c1, r2, c2);
+    const x = ws.getCell(r1, c1);
+    x.value = cell.text;
+    x.alignment = cell.vertical ? { ...center, textRotation: 90 } : center;
+  }
   head(L.total, L.total, Ly.labels.total);
   head(L.percent, L.percent, Ly.labels.percent);
   head(L.grade, L.grade, Ly.labels.grade);
-  // с названиями заданий/критериев шапке нужно больше места
+  const k = L.bands;
   const hasTitles = r.tasks.some((t) => t.title?.trim());
-  const hasLabels = r.tasks.some((t) => t.parts.some((p) => p.label?.trim()));
-  ws.getRow(H1).height = hasTitles ? 60 : 43.5;
-  ws.getRow(H2).height = hasLabels ? 45 : 28.5;
-  if (k > 1) ws.getRow(H3).height = 64;
-  for (const rr of (k > 1 ? [H1, H2, H3] : [H1, H2])) for (let cc = 1; cc <= L.last; cc++) { const cell = ws.getCell(rr, cc); cell.border = thin; cell.font = font; }
+  const hasLabels = r.columns.some((c) => c.header.includes('\n'));
+  for (let rr = H1; rr <= HB; rr++) {
+    const isBand = k > 1 && rr === HB;
+    ws.getRow(rr).height = isBand ? 64 : rr === H1 ? (hasTitles ? 60 : 43.5) : (hasLabels ? 45 : 28.5);
+    for (let cc = 1; cc <= L.last; cc++) { const cell = ws.getCell(rr, cc); cell.border = thin; cell.font = font; }
+  }
 
   // ученики
   const first = HB + 1;

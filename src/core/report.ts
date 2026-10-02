@@ -1,5 +1,5 @@
 import type { ClassReport, JournalClass, ReportRow, Settings } from './types.ts';
-import { flattenColumns, structureMax } from './structure.ts';
+import { flattenColumns, structureMax, cloneStructure } from './structure.ts';
 import { distribute, distributeTargets, gradeFor, makeRng } from './distribute.ts';
 import { generateLadder, ladderFits, type Ladder } from './ladder.ts';
 import { fillTemplate } from './layout.ts';
@@ -83,7 +83,7 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     kind: s.kind, number: s.number,
     date: cls.dateHeld || (s.showDates ? fullDate(a?.date, cls.year || s.year) : undefined),
     dateEntered: cls.dateEntered,
-    max, columns, tasks: structure.tasks, rows,
+    max, columns, tasks: structure.tasks, structure: cloneStructure(structure), rows,
     participants: 0, absent: absentNames.length + rows.filter((x) => !x.absent && x.reason).length, absentNames,
     avg: [], avgTotal: 0, count5: 0, count4: 0, efficiency: 0,
     teacherShort: s.teacherShort, thresholds: s.thresholds,

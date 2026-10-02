@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { parseWorkbook, shortTeacherName } from '../src/parse/journal.ts';
 import { buildReport } from '../src/core/report.ts';
-import { parseStructure, flattenColumns } from '../src/core/structure.ts';
+import { parseStructure, flattenColumns, structureToText } from '../src/core/structure.ts';
 import { generateLadder, ladderErrors, fillLadderGaps } from '../src/core/ladder.ts';
 import { distribute } from '../src/core/distribute.ts';
 import { exportWorkbook, fileNameFor } from '../src/export/xlsx.ts';
@@ -108,4 +108,15 @@ console.log('записано .out/titles.xlsx', bytes3.length);
   const rb = classes.map((c) => buildReport(c, sb, sb.structure));
   writeFileSync('.out/bands.xlsx', await exportWorkbook(rb, sb));
   console.log('записано .out/bands.xlsx; колонок', rb[0].columns.length, 'уровней', rb[0].bands);
+}
+
+// критерий в критерии: 2.2 = (3+2), шапка в три яруса + уровни у 2.1
+{
+  const sn = { ...settings, structure: { ...parseStructure('5; 5+(3+2)+20+10; 5')!, partNumbering: true } };
+  sn.structure.tasks[1].parts[0].bands = 3;
+  const rn = classes.map((c) => buildReport(c, sn, sn.structure));
+  writeFileSync('.out/nested.xlsx', await exportWorkbook(rn, sn));
+  console.log('записано .out/nested.xlsx; колонок', rn[0].columns.length, 'текст', structureToText(sn.structure));
+  const back = parseStructure(structureToText(sn.structure))!;
+  if (structureToText(back) !== '5; 5+(3+2)+20+10; 5') { console.log('✗ скобки в быстром вводе'); process.exitCode = 1; }
 }
