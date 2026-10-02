@@ -102,7 +102,9 @@ console.log('записано .out/titles.xlsx', bytes3.length);
 
 // форма с уровнями: 3 колонки-диапазона под каждым критерием
 {
-  const sb = { ...settings, structure: { ...parseStructure('5; 5+15+15+5; 5')!, bands: 3 } };
+  const sb = { ...settings, structure: { ...parseStructure('5; 5+15+15+5; 5')!, bands: 3, headerStyle: 'short' as const, partNumbering: true } };
+  sb.structure.tasks[2].bands = 0; // 3 задание — без уровней
+  sb.structure.tasks[1].parts[0].bands = 2; // 2.1 — два уровня
   const rb = classes.map((c) => buildReport(c, sb, sb.structure));
   writeFileSync('.out/bands.xlsx', await exportWorkbook(rb, sb));
   console.log('записано .out/bands.xlsx; колонок', rb[0].columns.length, 'уровней', rb[0].bands);

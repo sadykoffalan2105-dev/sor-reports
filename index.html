@@ -64,7 +64,6 @@
             <button class="btn small" id="preset-new" type="button" title="Новая пустая разбаловка">＋ Новая</button>
             <button class="btn small" id="preset-dup" type="button">Дублировать</button>
             <input id="preset-name" class="preset-name" placeholder="название разбаловки" title="Название выбранной разбаловки" />
-            <label class="inline">Уровни под критериями <select id="s-bands" title="Колонки-диапазоны под каждым критерием: балл ставится в свой диапазон (как в форме 2026)"><option value="0">нет</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
             <button class="btn small ghost" id="preset-del" type="button">Удалить</button>
             <button class="btn small accent" id="photo-btn" type="button" title="Распознать рукописную разбаловку и лестницу с фотографии">📷 Распознать по фото</button>
           </div>
@@ -74,6 +73,14 @@
             <input id="s-structure" placeholder="5; 5+5+20+10; 5" />
           </label>
           <div id="s-structure-view" class="struct"></div>
+        </div>
+        <div class="hdr-tools">
+          <span class="hdr-title">Шапка таблицы</span>
+          <label class="inline">Подпись задания <select id="s-hstyle" title="Как подписывать задания в шапке"><option value="full">«1 задание 5 баллов»</option><option value="short">«1 зад · 5 балл»</option></select></label>
+          <label class="inline chk"><input type="checkbox" id="s-pnum" /> нумерация критериев (2.1, 2.2…)</label>
+          <label class="inline">Уровни под критериями <select id="s-bands" title="Колонки-диапазоны под каждым критерием: балл ставится в свой диапазон (как в форме 2026). Для отдельного критерия — в его ячейке"><option value="0">нет</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+          <label class="inline chk"><input type="checkbox" id="s-abscols2" /> колонки «Причина отсутствия», «Дата сдачи»</label>
+          <button class="btn small ghost" id="s-labels-go" type="button" title="Подписи колонок «Фамилия имя ученика», «Общий балл», «В%», «Оценивание» — в макете отчёта">Подписи колонок…</button>
         </div>
         <div id="struct-editor" class="struct-editor"></div>
 

@@ -23,18 +23,20 @@ export interface Layout {
   scoreStart: number; scoreEnd: number;
   total: number; percent: number; grade: number;
   last: number;
-  bands: number;        // уровней под критерием (1 — нет)
+  bands: number;        // максимум уровней (1 — нет; >1 — три строки шапки)
+  kOf: number[];        // уровней у каждого критерия
   phys: number[];       // первая физическая колонка каждого критерия
   helper: number;       // скрытые колонки с суммой уровней (для диаграммы), 0 — нет
 }
 export function layoutFor(r: ClassReport): Layout {
-  const k = Math.max(1, r.bands || 1);
+  const ks = r.columns.map((col) => Math.max(1, col.bands || 1));
+  const k = Math.max(1, ...ks);
   let c = 3;
   const l: Partial<Layout> = {};
   if (r.absentColumns) { l.reason = c++; l.date = c++; }
-  l.scoreStart = c; l.phys = r.columns.map((_, i) => c + i * k); c += r.columns.length * k; l.scoreEnd = c - 1;
+  l.scoreStart = c; l.phys = []; ks.forEach((kc) => { l.phys!.push(c); c += kc; }); l.scoreEnd = c - 1;
   l.total = c++; l.percent = c++; l.grade = c++;
-  l.last = l.grade; l.bands = k; l.helper = k > 1 ? l.last + 1 : 0;
+  l.last = l.grade; l.bands = k; l.kOf = ks; l.helper = k > 1 ? l.last + 1 : 0;
   return l as Layout;
 }
 
@@ -73,7 +75,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   ws.getColumn(1).width = 3.5;
   ws.getColumn(2).width = 27.4;
   if (L.reason) { ws.getColumn(L.reason).width = 14; ws.getColumn(L.date!).width = 11; }
-  for (let c = L.scoreStart; c <= L.scoreEnd; c++) ws.getColumn(c).width = L.bands > 1 ? 4.6 : 7.25;
+  r.columns.forEach((_, ci) => { for (let j = 0; j < L.kOf[ci]; j++) ws.getColumn(L.phys[ci] + j).width = L.kOf[ci] > 1 ? 4.6 : 7.25; });
   if (L.helper) r.columns.forEach((_, ci) => { ws.getColumn(L.helper + ci).width = 6; ws.getColumn(L.helper + ci).hidden = true; });
   ws.getColumn(L.total).width = 7.25;
   ws.getColumn(L.percent).width = 7;
@@ -125,21 +127,23 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   if (L.reason) { head(L.reason, L.reason, 'Причина отсутствия'); head(L.date!, L.date!, `Дата сдачи ${r.kind}а`); }
   let c = L.scoreStart;
   const k = L.bands;
-  const bandCells = (col: ScoreColumn, start: number) => {
-    if (k <= 1) return;
-    bandRanges(col.max, k).forEach((b, bi) => { const cell = ws.getCell(H3, start + bi); cell.value = bandLabel(b); cell.alignment = { ...center, textRotation: 90 }; });
+  const bandCells = (col: ScoreColumn, start: number, kc: number) => {
+    if (kc <= 1) return;
+    bandRanges(col.max, kc).forEach((b, bi) => { const cell = ws.getCell(H3, start + bi); cell.value = bandLabel(b); cell.alignment = { ...center, textRotation: 90 }; });
   };
   r.tasks.forEach((task, ti) => {
     const cols = r.columns.filter((x) => x.taskIndex === ti);
-    if (!task.parts.length) { head(c, c + k - 1, taskHeader(task, ti), H1, k > 1 ? H2 : HB); bandCells(cols[0], c); c += k; return; }
-    head(c, c + cols.length * k - 1, taskHeader(task, ti), H1, H1);
+    const idx = r.columns.indexOf(cols[0]);
+    const span = cols.reduce((a, _, j) => a + L.kOf[idx + j], 0);
+    if (!task.parts.length) { const kc = L.kOf[idx]; head(c, c + kc - 1, taskHeader(task, ti, r.headerStyle), H1, kc > 1 ? H2 : HB); bandCells(cols[0], c, kc); c += kc; return; }
+    head(c, c + span - 1, taskHeader(task, ti, r.headerStyle), H1, H1);
     cols.forEach((col, i) => {
-      const start = c + i * k;
-      if (k > 1) ws.mergeCells(H2, start, H2, start + k - 1);
+      const kc = L.kOf[idx + i]; const start = L.phys[idx + i];
+      if (kc > 1) ws.mergeCells(H2, start, H2, start + kc - 1); else if (k > 1) ws.mergeCells(H2, start, H3, start);
       const cell = ws.getCell(H2, start); cell.value = col.header; cell.alignment = center;
-      bandCells(col, start);
+      bandCells(col, start, kc);
     });
-    c += cols.length * k;
+    c += span;
   });
   head(L.total, L.total, Ly.labels.total);
   head(L.percent, L.percent, Ly.labels.percent);
@@ -171,8 +175,8 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
       }
     } else {
       if (L.reason) { ws.getCell(rn, L.reason).value = row.reason ?? ''; ws.getCell(rn, L.date!).value = row.retake ?? ''; }
-      row.scores.forEach((v, ci) => { const pc0 = L.phys[ci] + (k > 1 ? bandIndex(v, r.columns[ci].max, k) : 0); ws.getCell(rn, pc0).value = v; });
-      if (L.helper) r.columns.forEach((_, ci) => { ws.getCell(rn, L.helper + ci).value = { formula: `SUM(${A(L.phys[ci])}${rn}:${A(L.phys[ci] + k - 1)}${rn})`, result: row.scores[ci] }; });
+      row.scores.forEach((v, ci) => { const kc = L.kOf[ci]; const pc0 = L.phys[ci] + (kc > 1 ? bandIndex(v, r.columns[ci].max, kc) : 0); ws.getCell(rn, pc0).value = v; });
+      if (L.helper) r.columns.forEach((_, ci) => { ws.getCell(rn, L.helper + ci).value = { formula: `SUM(${A(L.phys[ci])}${rn}:${A(L.phys[ci] + L.kOf[ci] - 1)}${rn})`, result: row.scores[ci] }; });
       const tot = ws.getCell(rn, L.total);
       tot.value = { formula: `SUM(${A(L.scoreStart)}${rn}:${A(L.scoreEnd)}${rn})`, result: row.total };
       const pc = ws.getCell(rn, L.percent);
@@ -195,7 +199,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): C
   const avgRow = Ly.showAvg ? next++ : 0, pctRow = Ly.showPct ? next++ : 0;
   const c5Row = Ly.showCounts ? next++ : 0, c4Row = Ly.showCounts ? next++ : 0, effRow = Ly.showEff ? next++ : 0;
   const gradeRange = scoreRange(L.grade, first, lastRow);
-  const colOf = (cc: number) => { if (cc === L.total) return { ci: -1, max: r.max }; const ci = L.phys.findIndex((p) => cc >= p && cc < p + k); return { ci, max: r.columns[ci]?.max ?? 1 }; };
+  const colOf = (cc: number) => { if (cc === L.total) return { ci: -1, max: r.max }; const ci = L.phys.findIndex((p, i) => cc >= p && cc < p + L.kOf[i]); return { ci, max: r.columns[ci]?.max ?? 1 }; };
   if (avgRow) {
     ws.getCell(avgRow, 2).value = 'Сред.балл:';
     for (let cc = L.scoreStart; cc <= L.total; cc++) {

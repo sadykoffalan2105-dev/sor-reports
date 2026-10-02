@@ -255,3 +255,11 @@ table.lad { width: auto; min-width: 60%; }
 .rep td.band { min-width: 30px; }
 .rep td.band input { width: 36px; }
 .sheet .title { white-space: pre-line; }
+
+.hdr-tools { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin: 4px 0 10px; background: #fafbfc; font-size: 13px; }
+.hdr-tools .hdr-title { font-weight: 600; color: var(--ink); }
+.hdr-tools label.inline { display: flex; flex-direction: row; align-items: center; gap: 6px; min-width: 0; }
+.hdr-tools select { width: auto; padding: 4px 8px; font-size: 13px; }
+.st .part-cell select[data-f="pbands"] { grid-column: 1 / -1; font-size: 11px; padding: 2px 4px; background: transparent; border-color: transparent; color: var(--muted); }
+.st .part-cell select[data-f="pbands"]:hover { border-color: var(--line); background: #fff; }
+.st td select[data-f="tbands"] { font-size: 12px; padding: 3px 4px; width: auto; }

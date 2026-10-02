@@ -1,4 +1,4 @@
-import type { Structure, Task, Part, ScoreColumn, Preset } from './types.ts';
+import type { Structure, Task, Part, ScoreColumn, Preset, HeaderStyle } from './types.ts';
 
 /** Сумма максимумов всех заданий. */
 export function structureMax(s: Structure): number {
@@ -14,10 +14,10 @@ export function flattenColumns(s: Structure): ScoreColumn[] {
   s.tasks.forEach((t, ti) => {
     if (t.parts.length) {
       t.parts.forEach((p, pi) =>
-        cols.push({ key: `t${ti}p${pi}`, taskIndex: ti, partIndex: pi, header: partHeader(p), max: p.max, target: p.target }),
+        cols.push({ key: `t${ti}p${pi}`, taskIndex: ti, partIndex: pi, header: partHeader(p, s, ti, pi), max: p.max, target: p.target, bands: effBands(p.bands, s) }),
       );
     } else {
-      cols.push({ key: `t${ti}`, taskIndex: ti, partIndex: -1, header: '', max: t.max, target: t.target });
+      cols.push({ key: `t${ti}`, taskIndex: ti, partIndex: -1, header: '', max: t.max, target: t.target, bands: effBands(t.bands, s) });
     }
   });
   return cols;
@@ -29,15 +29,23 @@ export function pointsLabel(n: number): string {
   return `${n} ${w}`;
 }
 
-/** Заголовок задания в строке 5: «2 задание 40 баллов», при наличии названия — со второй строкой. */
-export function taskHeader(t: Task, i: number): string {
-  const base = `${i + 1} задание ${pointsLabel(taskMax(t))}`;
+/** Уровней под колонкой: своё значение (0 = нет) или общее для разбаловки. */
+export function effBands(own: number | undefined, s: Structure): number {
+  const v = own ?? s.bands ?? 0;
+  return v > 1 ? v : 1;
+}
+
+/** Заголовок задания в строке 5: «2 задание 40 баллов» (или «2 зад\n40 балл»), при наличии названия — ещё строка. */
+export function taskHeader(t: Task, i: number, style: HeaderStyle = 'full'): string {
+  const base = style === 'short' ? `${i + 1} зад\n${taskMax(t)} балл` : `${i + 1} задание ${pointsLabel(taskMax(t))}`;
   return t.title?.trim() ? `${base}\n${t.title.trim()}` : base;
 }
 
-/** Заголовок подкритерия в строке 6: «5 баллов» или «Название\n5 баллов». */
-export function partHeader(p: Part): string {
-  return p.label?.trim() ? `${p.label.trim()}\n${pointsLabel(p.max)}` : pointsLabel(p.max);
+/** Заголовок подкритерия в строке 6: «5 баллов», «2.1\n5 балл», с названием — ещё строка. */
+export function partHeader(p: Part, s?: Structure, ti = 0, pi = 0): string {
+  const pts = s?.headerStyle === 'short' ? `${p.max} балл` : pointsLabel(p.max);
+  const num = s?.partNumbering ? `${ti + 1}.${pi + 1}\n` : '';
+  return p.label?.trim() ? `${num}${p.label.trim()}\n${pts}` : `${num}${pts}`;
 }
 
 /** Название колонки для легенды диаграммы: «2.3 Чертёж (20 баллов)» или «1 задание — Тест». */
@@ -70,12 +78,12 @@ export function parseStructure(text: string): Structure | null {
 export function structureFromText(text: string, prev?: Structure): Structure | null {
   const s = parseStructure(text);
   if (!s || !prev) return s;
-  s.bands = prev.bands;
+  s.bands = prev.bands; s.headerStyle = prev.headerStyle; s.partNumbering = prev.partNumbering;
   s.tasks.forEach((t, i) => {
     const p = prev.tasks[i];
     if (!p) return;
-    t.title = p.title ?? '';
-    t.parts.forEach((part, j) => { part.label = p.parts[j]?.label ?? ''; });
+    t.title = p.title ?? ''; t.bands = p.bands; t.target = p.target;
+    t.parts.forEach((part, j) => { part.label = p.parts[j]?.label ?? ''; part.bands = p.parts[j]?.bands; part.target = p.parts[j]?.target; });
   });
   return s;
 }
@@ -86,7 +94,7 @@ export function structureToText(s: Structure): string {
 }
 
 export function cloneStructure(s: Structure): Structure {
-  return { bands: s.bands, tasks: s.tasks.map((t) => ({ title: t.title ?? '', max: t.max, target: t.target, parts: t.parts.map((p) => ({ label: p.label ?? '', max: p.max, target: p.target })) })) };
+  return { bands: s.bands, headerStyle: s.headerStyle, partNumbering: s.partNumbering, tasks: s.tasks.map((t) => ({ title: t.title ?? '', max: t.max, target: t.target, bands: t.bands, parts: t.parts.map((p) => ({ label: p.label ?? '', max: p.max, target: p.target, bands: p.bands })) })) };
 }
 
 /** Диапазоны уровней под критерием: 5 баллов, 3 уровня → 0-1, 2-3, 4-5; 15 → 0-5, 6-10, 11-15. */

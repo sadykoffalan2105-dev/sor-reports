@@ -253,6 +253,9 @@ function renderPresetBar(): void {
   ($('preset-del') as HTMLButtonElement).disabled = S().presets.length <= 1;
   ($('preset-name') as HTMLInputElement).value = p.name;
   ($('s-bands') as HTMLSelectElement).value = String(p.structure.bands || 0);
+  ($('s-hstyle') as HTMLSelectElement).value = p.structure.headerStyle ?? 'full';
+  ($('s-pnum') as HTMLInputElement).checked = !!p.structure.partNumbering;
+  ($('s-abscols2') as HTMLInputElement).checked = S().absentColumns;
   const own = state.editGrade ? gradePreset(state.editGrade) : undefined;
   $('edit-hint').textContent = state.editGrade
     ? (own ? `${state.editGrade}-е классы: правится их разбаловка «${own.name}»` : `${state.editGrade}-е классы используют общую разбаловку — правки ниже меняют общую`)
@@ -276,7 +279,9 @@ function renderStructureView(): void {
     + ((s.bands ?? 0) > 1 ? `<span class="sum">· уровни под критериями: ${s.bands} (${bandRanges(5, s.bands!).map(bandLabel).join(', ')} для 5 баллов)</span>` : '');
 }
 
-/** Таблица заданий: строка — задание, ячейки — критерии (баллы, название, цель %). */
+const bandOpts = (v: number | undefined): string => [['', 'ур.: общие'], ['0', 'ур.: нет'], ['2', 'ур.: 2'], ['3', 'ур.: 3'], ['4', 'ур.: 4']].map(([val, lab]) => `<option value="${val}" ${String(v ?? '') === val ? 'selected' : ''}>${lab}</option>`).join('');
+
+/** Таблица заданий: строка — задание, ячейки — критерии (баллы, название, цель %, уровни). */
 function renderStructureEditor(): void {
   const s = editingStructure();
   const rows = s.tasks.map((t, ti) => {
@@ -285,6 +290,7 @@ function renderStructureEditor(): void {
         <button class="x" type="button" data-act="del-part" title="Убрать критерий">✕</button>
         <input type="text" data-f="plabel" value="${h(p.label ?? '')}" placeholder="название" title="Название критерия в шапке" />
         <input type="number" data-f="ptarget" min="0" max="100" value="${p.target ?? ''}" placeholder="цель %" title="Целевой % для раскидки «по целям»" />
+        <select data-f="pbands" title="Уровни под этим критерием">${bandOpts(p.bands)}</select>
       </div>`).join('');
     return `<tr class="task-row" data-t="${ti}">
       <td class="n">${ti + 1}</td>
@@ -292,14 +298,15 @@ function renderStructureEditor(): void {
       <td class="parts-cell"><div class="parts">${parts}<button class="mini" type="button" data-act="add-part" title="Добавить критерий">＋ критерий</button></div></td>
       <td class="n">${t.parts.length ? `<b data-k="tsum">${taskMax(t)}</b>` : `<input type="number" data-f="tmax" min="0" value="${t.max}" title="Баллы задания" />`}</td>
       <td class="n">${t.parts.length ? '' : `<input type="number" data-f="ttarget" min="0" max="100" value="${t.target ?? ''}" placeholder="100" title="Целевой %" />`}</td>
+      <td class="n">${t.parts.length ? '' : `<select data-f="tbands" title="Уровни под этим заданием">${bandOpts(t.bands)}</select>`}</td>
       <td class="ops"><button class="mini" type="button" data-act="up" ${ti === 0 ? 'disabled' : ''} title="Выше">↑</button><button class="mini" type="button" data-act="down" ${ti === s.tasks.length - 1 ? 'disabled' : ''} title="Ниже">↓</button><button class="mini danger" type="button" data-act="del-task" ${s.tasks.length <= 1 ? 'disabled' : ''} title="Удалить задание">✕</button></td>
     </tr>`;
   }).join('');
   const total = structureMax(s);
   const ok = total === 50 || total === 40;
-  $('struct-editor').innerHTML = `<table class="st"><thead><tr><th>№</th><th>Название в шапке</th><th>Критерии: баллы · название · цель %</th><th>Баллы</th><th>Цель %</th><th></th></tr></thead>
+  $('struct-editor').innerHTML = `<table class="st"><thead><tr><th>№</th><th>Название в шапке</th><th>Критерии: баллы · название · цель % · уровни</th><th>Баллы</th><th>Цель %</th><th>Уровни</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="3"><button class="mini" type="button" data-act="add-task">＋ задание</button></td><td class="n"><b data-k="total">${total}</b></td><td colspan="2" class="${ok ? 'ok' : 'bad'}" data-k="total-note">${ok ? '✓ итого' : 'обычно СОР = 50, СОЧ = 40'}</td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="3"><button class="mini" type="button" data-act="add-task">＋ задание</button></td><td class="n"><b data-k="total">${total}</b></td><td colspan="3" class="${ok ? 'ok' : 'bad'}" data-k="total-note">${ok ? '✓ итого' : 'обычно СОР = 50, СОЧ = 40'}</td></tr></tfoot></table>`;
 }
 
 /** Ввод в поле редактора: обновить данные без перерисовки таблицы. */
@@ -312,13 +319,15 @@ function onStructInput(t: HTMLInputElement): void {
   const f = t.dataset.f;
   const num = (v: string) => Math.max(0, Math.round(Number(v)) || 0);
   const pctv = (v: string) => (v.trim() === '' ? undefined : Math.min(100, Math.max(0, Number(v) || 0)));
+  const bandsV = (v: string) => (v === '' ? undefined : Math.max(0, Number(v) || 0));
   if (f === 'title') task.title = t.value;
+  else if (f === 'tbands') task.bands = bandsV(t.value);
   else if (f === 'tmax') task.max = num(t.value);
   else if (f === 'ttarget') task.target = pctv(t.value);
-  else if (f === 'plabel' || f === 'pmax' || f === 'ptarget') {
+  else if (f === 'plabel' || f === 'pmax' || f === 'ptarget' || f === 'pbands') {
     const pi = Number((t.closest('.part-cell') as HTMLElement).dataset.p);
     const part = task.parts[pi]; if (!part) return;
-    if (f === 'plabel') part.label = t.value; else if (f === 'ptarget') part.target = pctv(t.value); else part.max = num(t.value);
+    if (f === 'plabel') part.label = t.value; else if (f === 'ptarget') part.target = pctv(t.value); else if (f === 'pbands') part.bands = bandsV(t.value); else part.max = num(t.value);
   } else return;
   setStructure(st);
   const cur = editingStructure();
@@ -434,13 +443,14 @@ function renderTabs(): void {
 function renderFootInto(el: HTMLElement, r: ClassReport): void {
   const lead = r.absentColumns ? '<td></td><td></td>' : '';
   const Ly = r.layout;
-  const k = Math.max(1, r.bands || 1);
+  const ks = r.columns.map((c) => Math.max(1, c.bands || 1));
+  const physTotal = ks.reduce((a, b) => a + b, 0);
   const rows: string[] = [];
-  if (Ly.showAvg) rows.push(`<tr><td></td><td class="lbl">Сред.балл:</td>${lead}${r.avg.map((a) => `<td colspan="${k}">${fix(a)}</td>`).join('')}<td>${fix(r.avgTotal)}</td><td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td></tr>`);
-  if (Ly.showPct) rows.push(`<tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td colspan="${k}">${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>`);
-  if (Ly.showCounts) rows.push(`<tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td><td colspan="${r.columns.length * k + 2}"></td></tr>
-    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td><td colspan="${r.columns.length * k + 2}"></td></tr>`);
-  if (Ly.showEff) rows.push(`<tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${r.columns.length * k + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`);
+  if (Ly.showAvg) rows.push(`<tr><td></td><td class="lbl">Сред.балл:</td>${lead}${r.avg.map((a, i) => `<td colspan="${ks[i]}">${fix(a)}</td>`).join('')}<td>${fix(r.avgTotal)}</td><td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td></tr>`);
+  if (Ly.showPct) rows.push(`<tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td colspan="${ks[i]}">${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>`);
+  if (Ly.showCounts) rows.push(`<tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td><td colspan="${physTotal + 2}"></td></tr>
+    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td><td colspan="${physTotal + 2}"></td></tr>`);
+  if (Ly.showEff) rows.push(`<tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${physTotal + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`);
   el.innerHTML = rows.join('');
 }
 
@@ -502,14 +512,22 @@ function renderPreview(): void {
 
   const Ly = r.layout;
   const extra = r.absentColumns ? `<th rowspan="2">Причина отсутствия</th><th rowspan="2">Дата сдачи ${r.kind}а</th>` : '';
-  const k = Math.max(1, r.bands || 1);
+  const ks = r.columns.map((c) => Math.max(1, c.bands || 1));
+  const k = Math.max(1, ...ks);
+  const physTotal = ks.reduce((a, b) => a + b, 0);
   const hs = k > 1 ? 3 : 2; // строк в шапке
   let head1 = '', head2 = '', head3 = '';
-  const bandHead = (c: ScoreColumn) => (k > 1 ? bandRanges(c.max, k).map((b) => `<th class="vert">${h(bandLabel(b))}</th>`).join('') : '');
+  const bandHead = (c: ScoreColumn, kc: number) => (kc > 1 ? bandRanges(c.max, kc).map((b) => `<th class="vert">${h(bandLabel(b))}</th>`).join('') : '');
   r.tasks.forEach((t, ti) => {
     const cols = r.columns.filter((c) => c.taskIndex === ti);
-    if (!t.parts.length) { head1 += `<th rowspan="${k > 1 ? 2 : hs}" colspan="${k}">${br(taskHeader(t, ti))}</th>`; head3 += bandHead(cols[0]); }
-    else { head1 += `<th colspan="${cols.length * k}">${br(taskHeader(t, ti))}</th>`; head2 += cols.map((c) => `<th colspan="${k}">${br(c.header)}</th>`).join(''); head3 += cols.map(bandHead).join(''); }
+    const idx = r.columns.indexOf(cols[0]);
+    const span = cols.reduce((a, _, j) => a + ks[idx + j], 0);
+    if (!t.parts.length) { const kc = ks[idx]; head1 += `<th rowspan="${kc > 1 ? 2 : hs}" colspan="${kc}">${br(taskHeader(t, ti, r.headerStyle))}</th>`; head3 += bandHead(cols[0], kc); }
+    else {
+      head1 += `<th colspan="${span}">${br(taskHeader(t, ti, r.headerStyle))}</th>`;
+      head2 += cols.map((c, j) => `<th colspan="${ks[idx + j]}" ${ks[idx + j] > 1 || hs === 2 ? '' : 'rowspan="2"'}>${br(c.header)}</th>`).join('');
+      head3 += cols.map((c, j) => bandHead(c, ks[idx + j])).join('');
+    }
   });
   const REASONS = ['', 'Б', 'П', 'Н', 'У'];
   const reasonCells = (row: ReportRow) => r.absentColumns
@@ -519,13 +537,14 @@ function renderPreview(): void {
   const body = r.rows.map((row, ri) => {
     if (row.absent) {
       const who = r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал';
-      return `<tr class="abs" data-r="${ri}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}<td colspan="${r.columns.length * k + 3}">${who} · балл вручную: <input type="number" min="0" max="${r.max}" data-act="manual" data-s="${row.studentIndex}" placeholder="—" /></td>${del(row)}</tr>`;
+      return `<tr class="abs" data-r="${ri}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}<td colspan="${physTotal + 3}">${who} · балл вручную: <input type="number" min="0" max="${r.max}" data-act="manual" data-s="${row.studentIndex}" placeholder="—" /></td>${del(row)}</tr>`;
     }
     const cells = row.scores.map((v, ci) => {
       const inp = `<input type="number" min="0" max="${r.columns[ci].max}" value="${v}" data-r="${ri}" data-c="${ci}" />`;
-      if (k <= 1) return `<td>${inp}</td>`;
-      const bi = bandIndex(v, r.columns[ci].max, k);
-      return Array.from({ length: k }, (_, j) => (j === bi ? `<td class="band">${inp}</td>` : '<td class="band"></td>')).join('');
+      const kc = ks[ci];
+      if (kc <= 1) return `<td>${inp}</td>`;
+      const bi = bandIndex(v, r.columns[ci].max, kc);
+      return Array.from({ length: kc }, (_, j) => (j === bi ? `<td class="band">${inp}</td>` : '<td class="band"></td>')).join('');
     }).join('');
     return `<tr data-r="${ri}" class="${row.reason ? 'retake' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total">${row.total}</td><td data-k="pct">${pct(row.percent)}</td><td data-k="grade">${row.grade}</td>${del(row)}</tr>`;
   }).join('');
@@ -724,7 +743,7 @@ function bindSettings(): void {
   };
   $('sec-settings').addEventListener('change', (e) => {
     const t = e.target as HTMLElement;
-    if (t.closest('#ladder-box') || t.closest('#struct-editor') || t.closest('.preset-bar') || t.id === 's-structure') return;
+    if (t.closest('#ladder-box') || t.closest('#struct-editor') || t.closest('.preset-bar') || t.closest('.hdr-tools') || t.id === 's-structure') return;
     apply();
   });
 
@@ -779,7 +798,7 @@ function bindSettings(): void {
   });
 
   // редактор структуры
-  $('struct-editor').addEventListener('input', (e) => { const t = e.target as HTMLInputElement; if (t.matches('input[data-f]')) onStructInput(t); });
+  $('struct-editor').addEventListener('input', (e) => { const t = e.target as HTMLInputElement; if (t.matches('input[data-f], select[data-f]')) onStructInput(t); });
   $('struct-editor').addEventListener('change', (e) => { // быстрый ввод критериев одного задания
     const t = e.target as HTMLInputElement; if (!t.matches('input[data-f="tquick"]')) return;
     const st = cloneStructure(S().structure);
@@ -804,6 +823,10 @@ function bindSettings(): void {
   });
   $('struct-editor').addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button[data-act]') as HTMLElement | null; if (b) onStructClick(b); });
 
+  $('s-hstyle').addEventListener('change', () => { const st = cloneStructure(editingStructure()); st.headerStyle = ($('s-hstyle') as HTMLSelectElement).value === 'short' ? 'short' : 'full'; setStructure(st); rebuild(); render(); });
+  $('s-pnum').addEventListener('change', () => { const st = cloneStructure(editingStructure()); st.partNumbering = ($('s-pnum') as HTMLInputElement).checked || undefined; setStructure(st); rebuild(); render(); });
+  $('s-abscols2').addEventListener('change', () => { S().absentColumns = ($('s-abscols2') as HTMLInputElement).checked; ($('s-absentcols') as HTMLInputElement).checked = S().absentColumns; saveSettings(); rebuild(); render(); });
+  $('s-labels-go').addEventListener('click', () => { ($('layout-box') as HTMLDetailsElement).open = true; $('l-name').scrollIntoView({ block: 'center', behavior: 'smooth' }); ($('l-name') as HTMLInputElement).focus(); });
   $('s-bands').addEventListener('change', () => {
     const st = cloneStructure(editingStructure());
     const n = Number(($('s-bands') as HTMLSelectElement).value) || 0;
