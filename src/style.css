@@ -239,3 +239,12 @@ table.st { border-collapse: collapse; width: 100%; font-size: 13px; margin-botto
 .st tfoot .ok { color: var(--accent); font-weight: 600; }
 .st tfoot .bad { color: var(--warn); font-weight: 600; }
 @media (max-width: 800px) { .st td.ttl { width: 30%; } .st th:nth-child(5), .st td:nth-child(5) { display: none; } }
+
+.step-hint { margin: -6px 0 12px; color: var(--muted); font-size: 13px; }
+.ladder-ctl { margin-top: 8px; }
+table.lad { width: auto; min-width: 60%; }
+.lad th.tot input { width: 56px; text-align: center; font-weight: 700; padding: 2px 4px; }
+.lad td input { width: 50px; }
+.lad .x { border: 0; background: none; color: var(--muted); cursor: pointer; }
+.lad .x:hover { color: var(--warn); }
+.ladder-wrap[hidden] { display: none; }

@@ -29,7 +29,7 @@ function defaults(): Settings {
     includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
     fontName: 'Aptos Narrow',
     variantLabel: '', noteText: NOTE_DEFAULT,
-    ladders: {},
+    ladders: {}, ladderRows: {},
     layout: mergeLayout(DEFAULT_LAYOUT, {}),
   };
 }
@@ -45,6 +45,8 @@ function loadSettings(): Settings {
     if (raw) {
       const j = JSON.parse(raw) as Partial<Settings>;
       const s: Settings = { ...d, ...j, thresholds: { ...d.thresholds, ...(j.thresholds ?? {}) }, ladders: j.ladders ?? {}, layout: mergeLayout(DEFAULT_LAYOUT, j.layout) };
+      s.ladderRows = j.ladderRows ?? {};
+      migrateLadders(s);
       if (!Array.isArray(s.presets) || !s.presets.length) { s.presets = d.presets; s.presetId = d.presetId; }
       if (!s.presets.some((p) => p.id === s.presetId)) s.presetId = s.presets[0].id;
       s.structure = cloneStructure(s.presets.find((p) => p.id === s.presetId)!.structure);
@@ -54,6 +56,7 @@ function loadSettings(): Settings {
     if (old) { // перенос из прежней версии: разбаловка → пресет «Моя разбаловка»
       const j = JSON.parse(old) as Partial<Settings>;
       const s: Settings = { ...d, ...j, presets: d.presets, presetId: d.presetId, thresholds: { ...d.thresholds, ...(j.thresholds ?? {}) }, ladders: j.ladders ?? {}, variantLabel: '', noteText: NOTE_DEFAULT };
+      s.ladderRows = {}; migrateLadders(s);
       if (j.structure?.tasks?.length) {
         const mine: Preset = { id: newPresetId(), name: 'Моя разбаловка', structure: cloneStructure(j.structure) };
         s.presets = [mine, ...d.presets]; s.presetId = mine.id;
@@ -68,7 +71,7 @@ function saveSettings(): void {
   try { localStorage.setItem(LS, JSON.stringify(state.settings)); } catch { /* ignore */ }
 }
 
-const state = { classes: [] as ClassState[], settings: loadSettings(), active: 0, ladderKey: '', editGrade: '' };
+const state = { classes: [] as ClassState[], settings: loadSettings(), active: 0, editGrade: '', ladderFull: false };
 
 /* ---------- утилиты ---------- */
 
@@ -95,12 +98,32 @@ function selectedMax(cls: JournalClass): number | undefined {
   return (cls.assessments.find((a) => a.id === cls.selectedAssessment) ?? cls.assessments[0])?.max;
 }
 /** Лестница для разбаловки: отредактированная из настроек или построенная по правилу. */
-function ladderFor(text: string): { rows: Ladder; custom: boolean; maxes: number[] } {
+function ladderFor(text: string): { rows: Ladder; custom: boolean; maxes: number[]; known: Set<number> } {
   const st = parseStructure(text) ?? S().structure;
   const maxes = flattenColumns(st).map((c) => c.max);
-  const saved = S().ladders[text];
-  if (ladderFits(saved, maxes)) return { rows: saved, custom: true, maxes };
-  return { rows: generateLadder(maxes), custom: false, maxes };
+  const max = maxes.reduce((a, b) => a + b, 0);
+  let rows = generateLadder(maxes);
+  const known = new Set<number>();
+  for (const [k, sc] of Object.entries(S().ladderRows[text] ?? {})) {
+    const t = Number(k);
+    if (Number.isInteger(t) && t >= 0 && t <= max && Array.isArray(sc) && sc.length === maxes.length) { rows[t] = sc.slice(); known.add(t); }
+  }
+  if (known.size) rows = fillLadderGaps(rows, known, maxes);
+  return { rows, custom: known.size > 0, maxes, known };
+}
+
+/** Старые полные лестницы → строки, отличающиеся от правила. */
+function migrateLadders(s: Settings): void {
+  for (const [key, full] of Object.entries(s.ladders ?? {})) {
+    const st = parseStructure(key); if (!st) continue;
+    const maxes = flattenColumns(st).map((c) => c.max);
+    if (!ladderFits(full, maxes)) continue;
+    const auto = generateLadder(maxes);
+    const m: Record<string, number[]> = s.ladderRows[key] ?? {};
+    full.forEach((r, t) => { if (auto[t].some((v, i) => v !== r[i])) m[String(t)] = r.slice(); });
+    if (Object.keys(m).length) s.ladderRows[key] = m;
+  }
+  s.ladders = {};
 }
 
 function rebuild(index?: number): void {
@@ -330,58 +353,72 @@ function onStructClick(btn: HTMLElement): void {
   rebuild(); render();
 }
 
-/* ---------- рендер: лестница баллов ---------- */
+/* ---------- рендер: раскладка по итоговому баллу ---------- */
 
-function ladderKeys(): { key: string; names: string[] }[] {
-  const map = new Map<string, Set<string>>();
-  const add = (key: string, name: string) => { if (!map.has(key)) map.set(key, new Set()); map.get(key)!.add(name); };
-  add(structureToText(S().structure), `общая: ${currentPreset().name}`);
-  for (const cs of state.classes) if (cs.presetId) add(structureTextFor(cs), `${cs.cls.className}: ${presetById(cs.presetId)?.name ?? ''}`);
-  for (const p of S().presets) add(structureToText(p.structure), p.name);
-  for (const k of Object.keys(S().ladders)) if (parseStructure(k)) add(k, 'сохранённая');
-  return [...map.entries()].map(([key, names]) => ({ key, names: [...names] }));
+/** Ключ раскладки — разбаловка, открытая в редакторе (вкладка параллели или общая). */
+function ladderKey(): string { return structureToText(editingStructure()); }
+
+function setKnownRow(key: string, t: number, scores: number[]): void {
+  const m = S().ladderRows[key] ?? (S().ladderRows[key] = {});
+  m[String(t)] = scores.slice();
+  saveSettings();
 }
 
-function renderLadder(): void {
-  const keys = ladderKeys();
-  if (!keys.some((k) => k.key === state.ladderKey)) state.ladderKey = keys[0].key;
-  const sel = $('ladder-key') as HTMLSelectElement;
-  sel.innerHTML = keys.map((k) => `<option value="${h(k.key)}" ${k.key === state.ladderKey ? 'selected' : ''}>${h(k.names.slice(0, 2).join(', '))}: ${h(k.key)}${S().ladders[k.key] ? ' (правлена)' : ''}</option>`).join('');
-
-  const key = state.ladderKey;
+function ladderHead(key: string): string {
   const st = parseStructure(key)!;
   const cols = flattenColumns(st);
-  const { rows, custom, maxes } = ladderFor(key);
-  const auto = generateLadder(maxes);
-  const bad = new Set(ladderErrors(rows, maxes));
-  $('ladder-status').textContent = custom ? `${key} — с правками${bad.size ? `, ошибок: ${bad.size}` : ''}` : `${key} — по правилу`;
-  const head = cols.map((c) => `<th title="${h(taskHeader(st.tasks[c.taskIndex], c.taskIndex))}">${c.partIndex < 0 ? `${c.taskIndex + 1} зд` : `${c.taskIndex + 1}.${c.partIndex + 1}`}<br><small>${c.max}</small></th>`).join('');
-  const max = rows.length - 1;
-  let body = '';
-  for (let t = max; t >= 0; t--) {
-    const r = rows[t];
-    const edited = custom && auto[t].some((v, i) => v !== r[i]);
-    body += `<tr data-t="${t}" class="${bad.has(t) ? 'bad' : ''} ${edited ? 'edited' : ''}"><th class="tot">${t}</th>${r.map((v, i) => `<td><input type="number" min="0" max="${maxes[i]}" value="${v}" data-c="${i}" /></td>`).join('')}<td class="sum">${r.reduce((a, b) => a + b, 0)}</td></tr>`;
-  }
-  $('ladder').innerHTML = `<table class="ladder-t"><thead><tr><th class="tot">Балл</th>${head}<th>Σ</th></tr></thead><tbody>${body}</tbody></table>`;
+  return `<tr><th class="tot">Балл</th>${cols.map((c) => `<th title="${h(taskHeader(st.tasks[c.taskIndex], c.taskIndex))}">${c.partIndex < 0 ? `${c.taskIndex + 1} зд` : `${c.taskIndex + 1}.${c.partIndex + 1}`}<br><small>${c.max}</small></th>`).join('')}<th>Σ</th><th></th></tr>`;
 }
 
+/** Строки учителя (компактно) + статус. */
+function renderLadderRows(): void {
+  const key = ladderKey();
+  const { rows, maxes, known } = ladderFor(key);
+  const max = rows.length - 1;
+  const bad = new Set(ladderErrors(rows, maxes));
+  $('ladder-status').textContent = known.size ? `${key} · ваших строк: ${known.size}${bad.size ? `, с ошибкой: ${bad.size}` : ''}` : `${key} · по правилу учителя`;
+  const body = [...known].sort((x, y) => y - x).map((t) => {
+    const r = rows[t]; const sum = r.reduce((x, y) => x + y, 0);
+    return `<tr data-t="${t}" class="${bad.has(t) ? 'bad' : ''}"><th class="tot"><input type="number" min="0" max="${max}" value="${t}" data-tot="${t}" title="Общий балл" /></th>${r.map((v, i) => `<td><input type="number" min="0" max="${maxes[i]}" value="${v}" data-c="${i}" /></td>`).join('')}<td class="sum">${sum}</td><td><button class="x" type="button" data-act="del-row" title="Убрать строку">✕</button></td></tr>`;
+  }).join('');
+  $('ladder-rows').innerHTML = known.size
+    ? `<table class="ladder-t lad"><thead>${ladderHead(key)}</thead><tbody>${body}</tbody></table>`
+    : '<div class="empty">Своих строк пока нет: баллы раскладываются по правилу учителя. Нажмите «＋ строка» и впишите, как у вас на бумаге, или «Заполнить чётные».</div>';
+  ($('ladder-full') as HTMLButtonElement).textContent = state.ladderFull ? 'Скрыть полную таблицу' : 'Полная таблица';
+}
+
+/** Полная таблица всех баллов (по кнопке); ваши строки отмечены точкой. */
+function renderFullLadder(): void {
+  const box = $('ladder');
+  if (!state.ladderFull) { box.hidden = true; box.innerHTML = ''; return; }
+  const key = ladderKey();
+  const { rows, maxes, known } = ladderFor(key);
+  const bad = new Set(ladderErrors(rows, maxes));
+  let body = '';
+  for (let t = rows.length - 1; t >= 0; t--) {
+    const r = rows[t];
+    body += `<tr data-t="${t}" class="${bad.has(t) ? 'bad' : ''} ${known.has(t) ? 'edited' : ''}"><th class="tot">${t}</th>${r.map((v, i) => `<td><input type="number" min="0" max="${maxes[i]}" value="${v}" data-c="${i}" /></td>`).join('')}<td class="sum">${r.reduce((x, y) => x + y, 0)}</td><td></td></tr>`;
+  }
+  box.hidden = false;
+  box.innerHTML = `<table class="ladder-t"><thead>${ladderHead(key)}</thead><tbody>${body}</tbody></table>`;
+}
+
+function renderLadder(): void { renderLadderRows(); renderFullLadder(); }
+
+/** Правка ячейки в полной таблице: строка становится «вашей». */
 function onLadderEdit(input: HTMLInputElement): void {
-  const key = state.ladderKey;
+  const key = ladderKey();
   const { rows, maxes } = ladderFor(key);
-  const copy = rows.map((r) => r.slice());
-  const t = Number(input.closest('tr')!.getAttribute('data-t'));
-  const c = Number(input.dataset.c);
-  const v = Math.round(Number(input.value));
-  copy[t][c] = Number.isFinite(v) ? v : 0;
-  S().ladders[key] = copy;
-  saveSettings();
   const tr = input.closest('tr')!;
-  const sum = copy[t].reduce((a, b) => a + b, 0);
+  const t = Number(tr.getAttribute('data-t'));
+  const row = rows[t].slice();
+  row[Number(input.dataset.c)] = Math.max(0, Math.round(Number(input.value)) || 0);
+  setKnownRow(key, t, row);
+  const sum = row.reduce((a, b) => a + b, 0);
   tr.querySelector('.sum')!.textContent = String(sum);
-  tr.classList.toggle('bad', sum !== t || copy[t].some((x, i) => x < 0 || x > maxes[i]));
+  tr.classList.toggle('bad', sum !== t || row.some((x, i) => x < 0 || x > maxes[i]));
   tr.classList.add('edited');
-  $('ladder-status').textContent = `${key} — с правками`;
+  renderLadderRows();
   rebuild(); renderTabs(); renderPreview();
 }
 
@@ -595,14 +632,14 @@ function bindPhoto(): void {
       if (!firstId) firstId = preset.id;
       // лестница: правило + строки с фото поверх; промежуточные баллы достраиваются между строками с фото
       const maxes = flattenColumns(st).map((x) => x.max);
-      let rows = generateLadder(maxes);
+      const rows = generateLadder(maxes);
       const known = new Set<number>();
       for (const row of c.ladder) {
         const okShape = row.scores.length === maxes.length && Number.isInteger(row.total) && row.total >= 0 && row.total < rows.length;
         const okCells = row.scores.every((v, i) => Number.isInteger(v) && v >= 0 && v <= maxes[i]);
         if (okShape && okCells && row.scores.reduce((a, b) => a + b, 0) === row.total) { rows[row.total] = row.scores.slice(); known.add(row.total); }
       }
-      if (known.size) { rows = fillLadderGaps(rows, known, maxes); s.ladders[structureToText(st)] = rows; }
+      if (known.size) { const m: Record<string, number[]> = {}; for (const t of known) m[String(t)] = rows[t].slice(); s.ladderRows[structureToText(st)] = m; }
     });
     if (firstId) { s.presetId = firstId; s.structure = cloneStructure(presetById(firstId)!.structure); }
     saveSettings();
@@ -758,10 +795,50 @@ function bindSettings(): void {
 
   $('s-reseed').addEventListener('click', () => { ($('s-seed') as HTMLInputElement).value = String(Math.floor(Math.random() * 1e6)); apply(); });
 
-  $('ladder-key').addEventListener('change', () => { state.ladderKey = ($('ladder-key') as HTMLSelectElement).value; renderLadder(); });
+  // раскладка по итоговому баллу
+  $('ladder-rows').addEventListener('input', (e) => {
+    const t = e.target as HTMLInputElement; if (!t.matches('input[data-c]')) return;
+    const tr = t.closest('tr') as HTMLElement; const key = ladderKey(); const total = Number(tr.dataset.t);
+    const { rows, maxes } = ladderFor(key);
+    const row = rows[total].slice(); row[Number(t.dataset.c)] = Math.max(0, Math.round(Number(t.value)) || 0);
+    setKnownRow(key, total, row);
+    const sum = row.reduce((x, y) => x + y, 0);
+    tr.querySelector('.sum')!.textContent = String(sum);
+    tr.classList.toggle('bad', sum !== total || row.some((x, i) => x > maxes[i]));
+    rebuild(); renderTabs(); renderPreview(); renderFullLadder();
+  });
+  $('ladder-rows').addEventListener('change', (e) => { // смена общего балла строки
+    const t = e.target as HTMLInputElement; if (!t.matches('input[data-tot]')) return;
+    const key = ladderKey(); const from = Number(t.dataset.tot); const to = Math.round(Number(t.value));
+    const m = S().ladderRows[key] ?? {}; const { rows } = ladderFor(key);
+    if (!Number.isInteger(to) || to < 0 || to >= rows.length || (to !== from && m[String(to)])) { renderLadder(); return; }
+    const row = m[String(from)] ?? rows[from]; delete m[String(from)]; m[String(to)] = row; S().ladderRows[key] = m;
+    saveSettings(); rebuild(); render();
+  });
+  $('ladder-rows').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest('button[data-act="del-row"]'); if (!b) return;
+    const key = ladderKey(); const t = Number((b.closest('tr') as HTMLElement).dataset.t);
+    delete S().ladderRows[key]?.[String(t)]; saveSettings(); rebuild(); render();
+  });
+  $('ladder-add').addEventListener('click', () => {
+    const key = ladderKey(); const { rows, known } = ladderFor(key);
+    const max = rows.length - 1;
+    let t = known.size ? Math.min(...known) - 2 : max;
+    while (t >= 0 && known.has(t)) t--;
+    if (t < 0) return;
+    setKnownRow(key, t, rows[t]); rebuild(); render();
+    (document.querySelector(`#ladder-rows tr[data-t="${t}"] input[data-c="0"]`) as HTMLInputElement | null)?.focus();
+  });
+  $('ladder-even').addEventListener('click', () => {
+    const key = ladderKey(); const { rows, known } = ladderFor(key); const max = rows.length - 1;
+    for (let t = max; t >= Math.max(0, max - 20); t -= 2) if (!known.has(t)) setKnownRow(key, t, rows[t]);
+    rebuild(); render();
+  });
+  $('ladder-full').addEventListener('click', () => { state.ladderFull = !state.ladderFull; renderLadder(); });
   $('ladder-reset').addEventListener('click', () => {
-    if (S().ladders[state.ladderKey] && !confirm('Убрать правки и построить лестницу заново по правилу?')) return;
-    delete S().ladders[state.ladderKey]; saveSettings(); rebuild(); render();
+    const key = ladderKey();
+    if (S().ladderRows[key] && !confirm('Убрать свои строки и вернуть правило учителя?')) return;
+    delete S().ladderRows[key]; saveSettings(); rebuild(); render();
   });
   $('ladder').addEventListener('input', (e) => {
     const t = e.target as HTMLInputElement; if (t.matches('input[data-c]')) onLadderEdit(t);

@@ -18,6 +18,7 @@
     <main class="wrap">
       <section class="card" id="sec-files">
         <h2><span class="num">1</span> Журналы классов</h2>
+        <p class="step-hint">По одному файлу на класс. Баллы за СОР / СОЧ берутся из журнала; здесь же выбирается колонка работы, разбаловка класса и даты.</p>
         <label class="drop" id="drop">
           <input type="file" id="file" multiple accept=".xls,.xlsx,.xlsm,.csv" hidden />
           <strong>Перетащите файлы журнала сюда</strong> или нажмите, чтобы выбрать
@@ -43,6 +44,7 @@
 
       <section class="card" id="sec-settings">
         <h2><span class="num">2</span> Настройки отчёта</h2>
+        <p class="step-hint">Шапка и подпись, затем разбаловка — как общий балл делится по заданиям (вкладки для параллелей), раскладка по итоговому баллу и макет отчёта.</p>
         <div class="grid">
           <label class="full">Школа <input id="s-school" /></label>
           <label>Вид работы
@@ -74,14 +76,17 @@
         </div>
         <div id="struct-editor" class="struct-editor"></div>
 
-        <details class="ladder" id="ladder-box">
-          <summary>Лестница баллов <small id="ladder-status"></small></summary>
+        <details class="ladder" id="ladder-box" open>
+          <summary>Раскладка по итоговому баллу <small id="ladder-status"></small></summary>
+          <p class="hint">Как на бумаге: общий балл → баллы по заданиям. Строки, которых нет, программа достроит между вашими, а ниже последней — по правилу учителя. Раскладка относится к разбаловке, открытой во вкладке выше.</p>
+          <div id="ladder-rows"></div>
           <div class="ladder-ctl">
-            <label>Для разбаловки <select id="ladder-key"></select></label>
-            <button class="btn small ghost" id="ladder-reset" type="button">Сбросить по правилу</button>
-            <span class="hint">Строка — общий балл, ячейки — баллы по заданиям. Правьте любые значения: сумма строки должна равняться баллу. Правки сохраняются в браузере.</span>
+            <button class="btn small" id="ladder-add" type="button">＋ строка</button>
+            <button class="btn small ghost" id="ladder-even" type="button" title="Добавить строки для чётных баллов (от максимума вниз) с раскладкой по правилу — чтобы править">Заполнить чётные</button>
+            <button class="btn small ghost" id="ladder-full" type="button">Полная таблица</button>
+            <button class="btn small ghost" id="ladder-reset" type="button">Сбросить</button>
           </div>
-          <div id="ladder" class="ladder-wrap"></div>
+          <div id="ladder" class="ladder-wrap" hidden></div>
         </details>
 
         <h3 class="sub-h">Как раскидывать и оценивать</h3>
@@ -153,6 +158,7 @@
 
       <section class="card" id="sec-preview">
         <h2><span class="num">3</span> Предпросмотр и скачивание</h2>
+        <p class="step-hint">Проверьте таблицу: баллы, причины отсутствия и даты можно править прямо здесь. Затем скачайте книгу Excel.</p>
         <div class="actions">
           <button class="btn primary" id="dl-all" type="button">Скачать книгу — все классы (.xlsx)</button>
           <button class="btn" id="dl-one" type="button">Скачать этот класс</button>

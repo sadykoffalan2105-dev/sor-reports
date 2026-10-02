@@ -32,7 +32,7 @@ const settings: Settings = {
   strategy: 'ladder', seed: 1, spread: 1,
   thresholds: { five: 0.86, four: 0.66, three: 0.3 },
   includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
-  fontName: 'Aptos Narrow', ladders: {}, layout: DEFAULT_LAYOUT,
+  fontName: 'Aptos Narrow', ladders: {}, ladderRows: {}, layout: DEFAULT_LAYOUT,
   variantLabel: '',
   noteText: 'Примечание\n- Оценки БСБ должны быть внесены в emaktab.uz в течение 5–7 дней.\n- Ученики, получившие оценку «2» (0–29 %), должны быть привлечены учителем предмета к дополнительным занятиям после уроков.',
 };
