@@ -6,7 +6,7 @@ import {
   cloneStructure, normalizeStructure, newPresetId, builtinPresets, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
 } from './core/structure.ts';
 import { buildHeader } from './core/header.ts';
-import { generateLadder, ladderErrors, ladderFits, fillLadderGaps, type Ladder } from './core/ladder.ts';
+import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLadderGaps, type Ladder, type RuleStep } from './core/ladder.ts';
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
 import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
@@ -30,7 +30,7 @@ function defaults(): Settings {
     includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
     fontName: 'Aptos Narrow',
     variantLabel: '', noteText: NOTE_DEFAULT,
-    ladders: {}, ladderRows: {},
+    ladders: {}, ladderRows: {}, ladderRules: {},
     layout: mergeLayout(DEFAULT_LAYOUT, {}),
   };
 }
@@ -46,7 +46,7 @@ function loadSettings(): Settings {
     if (raw) {
       const j = JSON.parse(raw) as Partial<Settings>;
       const s: Settings = { ...d, ...j, thresholds: { ...d.thresholds, ...(j.thresholds ?? {}) }, ladders: j.ladders ?? {}, layout: mergeLayout(DEFAULT_LAYOUT, j.layout) };
-      s.ladderRows = j.ladderRows ?? {};
+      s.ladderRows = j.ladderRows ?? {}; s.ladderRules = j.ladderRules ?? {};
       migrateLadders(s);
       if (!Array.isArray(s.presets) || !s.presets.length) { s.presets = d.presets; s.presetId = d.presetId; }
       if (!s.presets.some((p) => p.id === s.presetId)) s.presetId = s.presets[0].id;
@@ -57,7 +57,7 @@ function loadSettings(): Settings {
     if (old) { // перенос из прежней версии: разбаловка → пресет «Моя разбаловка»
       const j = JSON.parse(old) as Partial<Settings>;
       const s: Settings = { ...d, ...j, presets: d.presets, presetId: d.presetId, thresholds: { ...d.thresholds, ...(j.thresholds ?? {}) }, ladders: j.ladders ?? {}, variantLabel: '', noteText: NOTE_DEFAULT };
-      s.ladderRows = {}; migrateLadders(s);
+      s.ladderRows = {}; s.ladderRules = {}; migrateLadders(s);
       if (j.structure?.tasks?.length) {
         const mine: Preset = { id: newPresetId(), name: 'Моя разбаловка', structure: cloneStructure(j.structure) };
         s.presets = [mine, ...d.presets]; s.presetId = mine.id;
@@ -103,14 +103,15 @@ function ladderFor(text: string): { rows: Ladder; custom: boolean; maxes: number
   const st = parseStructure(text) ?? S().structure;
   const maxes = flattenColumns(st).map((c) => c.max);
   const max = maxes.reduce((a, b) => a + b, 0);
-  let rows = generateLadder(maxes);
+  const rule = S().ladderRules[text];
+  let rows = rule?.length ? generateLadderByRule(maxes, rule) : generateLadder(maxes);
   const known = new Set<number>();
   for (const [k, sc] of Object.entries(S().ladderRows[text] ?? {})) {
     const t = Number(k);
     if (Number.isInteger(t) && t >= 0 && t <= max && Array.isArray(sc) && sc.length === maxes.length) { rows[t] = sc.slice(); known.add(t); }
   }
   if (known.size) rows = fillLadderGaps(rows, known, maxes);
-  return { rows, custom: known.size > 0, maxes, known };
+  return { rows, custom: known.size > 0 || !!rule?.length, maxes, known };
 }
 
 /** Старые полные лестницы → строки, отличающиеся от правила. */
@@ -417,16 +418,44 @@ function renderLadderRows(): void {
   const { rows, maxes, known } = ladderFor(key);
   const max = rows.length - 1;
   const bad = new Set(ladderErrors(rows, maxes));
-  $('ladder-status').textContent = known.size ? `${key} · ваших строк: ${known.size}${bad.size ? `, с ошибкой: ${bad.size}` : ''}` : `${key} · по правилу учителя`;
+  const ruleN = S().ladderRules[key]?.length ?? 0;
+  $('ladder-status').textContent = `${key} · ${ruleN ? `своё правило (${ruleN} шаг.)` : 'общее правило'}${known.size ? `, ваших строк: ${known.size}` : ''}${bad.size ? `, с ошибкой: ${bad.size}` : ''}`;
   const body = [...known].sort((x, y) => y - x).map((t) => {
     const r = rows[t]; const sum = r.reduce((x, y) => x + y, 0);
     return `<tr data-t="${t}" class="${bad.has(t) ? 'bad' : ''}"><th class="tot"><input type="number" min="0" max="${max}" value="${t}" data-tot="${t}" title="Общий балл" /></th>${r.map((v, i) => `<td><input type="number" min="0" max="${maxes[i]}" value="${v}" data-c="${i}" /></td>`).join('')}<td class="sum">${sum}</td><td><button class="x" type="button" data-act="del-row" title="Убрать строку">✕</button></td></tr>`;
   }).join('');
   $('ladder-rows').innerHTML = known.size
     ? `<table class="ladder-t lad"><thead>${ladderHead(key)}</thead><tbody>${body}</tbody></table>`
-    : '<div class="empty">Своих строк пока нет: баллы раскладываются по правилу учителя. Нажмите «＋ строка» и впишите, как у вас на бумаге, или «Заполнить чётные».</div>';
+    : '<div class="empty">Своих строк нет. Можно задать правило снятия выше, добавить строки «＋ строка» как на бумаге или «Заполнить чётные» и править.</div>';
   ($('ladder-full') as HTMLButtonElement).textContent = state.ladderFull ? 'Скрыть полную таблицу' : 'Полная таблица';
 }
+
+/** Правило снятия баллов: список шагов + предпросмотр чётных баллов. */
+function renderLadderRule(): void {
+  const key = ladderKey();
+  const st = parseStructure(key)!;
+  const cols = flattenColumns(st);
+  const rule = S().ladderRules[key] ?? [];
+  const colName = (c: ScoreColumnLike) => `${c.path.length === 1 ? `${c.path[0] + 1} зд` : pathNum(c.path)} (${c.max} б.)`;
+  const opts = (sel: number) => cols.map((c, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>${h(colName(c))}</option>`).join('');
+  const steps = rule.map((r, i) => `<div class="rule-step" data-i="${i}">
+      <span class="rn">${i + 1}.</span>
+      <label>снимать из <select data-f="col">${opts(r.col)}</select></label>
+      <label>по <input type="number" min="0" data-f="step" value="${r.step || ''}" placeholder="всё" title="По сколько баллов за раз; пусто — всё сразу до минимума" /></label>
+      <label>не ниже <input type="number" min="0" data-f="floor" value="${r.floor}" title="Минимум, который остаётся в колонке" /></label>
+      <button class="mini" type="button" data-act="rule-up" ${i === 0 ? 'disabled' : ''}>↑</button><button class="mini" type="button" data-act="rule-down" ${i === rule.length - 1 ? 'disabled' : ''}>↓</button><button class="mini danger" type="button" data-act="rule-del" title="Убрать шаг">✕</button>
+    </div>`).join('');
+  $('ladder-rule').innerHTML = `<div class="rule-head"><b>Правило снятия баллов</b><span class="hint">Недобор снимается шагами по порядку: из какой колонки, по сколько за раз и до какого минимума. Шаги идут по кругу, пока не упрутся в минимум; остальное — общим правилом.</span></div>
+    ${steps || '<div class="empty">Шагов нет — действует общее правило учителя (крупные задания первыми, при равных — правее).</div>'}
+    <div class="ladder-ctl"><button class="btn small" type="button" data-act="rule-add">＋ шаг</button>${rule.length ? '<button class="btn small ghost" type="button" data-act="rule-clear">Убрать правило</button>' : ''}</div>`;
+  // предпросмотр: чётные баллы сверху вниз
+  const { rows, maxes, known } = ladderFor(key);
+  const max = rows.length - 1;
+  const body: string[] = [];
+  for (let t = max; t >= Math.max(0, max - 20); t -= 2) body.push(`<tr class="${known.has(t) ? 'edited' : ''}"><th class="tot">${t}</th>${rows[t].map((v, i) => `<td class="${v < maxes[i] ? 'cut' : ''}">${v}</td>`).join('')}<td class="sum">${t}</td><td></td></tr>`);
+  $('ladder-preview').innerHTML = `<div class="hint">Как получится (чётные баллы; ваши строки отмечены точкой, снятые баллы выделены):</div><table class="ladder-t lad ro"><thead>${ladderHead(key)}</thead><tbody>${body.join('')}</tbody></table>`;
+}
+type ScoreColumnLike = { path: number[]; max: number };
 
 /** Полная таблица всех баллов (по кнопке); ваши строки отмечены точкой. */
 function renderFullLadder(): void {
@@ -444,7 +473,7 @@ function renderFullLadder(): void {
   box.innerHTML = `<table class="ladder-t"><thead>${ladderHead(key)}</thead><tbody>${body}</tbody></table>`;
 }
 
-function renderLadder(): void { renderLadderRows(); renderFullLadder(); }
+function renderLadder(): void { renderLadderRule(); renderLadderRows(); renderFullLadder(); }
 
 /** Правка ячейки в полной таблице: строка становится «вашей». */
 function onLadderEdit(input: HTMLInputElement): void {
@@ -854,6 +883,28 @@ function bindSettings(): void {
   });
   $('s-reseed').addEventListener('click', () => { ($('s-seed') as HTMLInputElement).value = String(Math.floor(Math.random() * 1e6)); apply(); });
 
+  // правило снятия баллов
+  const ruleOf = (key: string): RuleStep[] => (S().ladderRules[key] ?? []).map((r) => ({ ...r }));
+  const saveRule = (key: string, rule: RuleStep[]) => { if (rule.length) S().ladderRules[key] = rule; else delete S().ladderRules[key]; saveSettings(); rebuild(); render(); };
+  $('ladder-rule').addEventListener('change', (e) => {
+    const t = e.target as HTMLInputElement; const stepEl = t.closest('.rule-step') as HTMLElement | null; if (!stepEl || !t.dataset.f) return;
+    const key = ladderKey(); const rule = ruleOf(key); const r = rule[Number(stepEl.dataset.i)]; if (!r) return;
+    if (t.dataset.f === 'col') r.col = Number(t.value); else if (t.dataset.f === 'step') r.step = Math.max(0, Math.round(Number(t.value)) || 0); else r.floor = Math.max(0, Math.round(Number(t.value)) || 0);
+    saveRule(key, rule);
+  });
+  $('ladder-rule').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest('button[data-act]') as HTMLElement | null; if (!b) return;
+    const key = ladderKey(); const rule = ruleOf(key); const act = b.dataset.act;
+    const i = Number((b.closest('.rule-step') as HTMLElement | null)?.dataset.i);
+    if (act === 'rule-add') { const cols = flattenColumns(parseStructure(key)!); const used = new Set(rule.map((r) => r.col)); const next = cols.map((_, j) => j).sort((a, c) => cols[c].max - cols[a].max || c - a).find((j) => !used.has(j)) ?? 0; rule.push({ col: next, step: 0, floor: Math.ceil(cols[next].max * 0.7) }); }
+    else if (act === 'rule-clear') { if (!confirm('Убрать правило снятия баллов?')) return; rule.length = 0; }
+    else if (act === 'rule-del') rule.splice(i, 1);
+    else if (act === 'rule-up' && i > 0) [rule[i - 1], rule[i]] = [rule[i], rule[i - 1]];
+    else if (act === 'rule-down' && i < rule.length - 1) [rule[i + 1], rule[i]] = [rule[i], rule[i + 1]];
+    else return;
+    saveRule(key, rule);
+  });
+
   // раскладка по итоговому баллу
   $('ladder-rows').addEventListener('input', (e) => {
     const t = e.target as HTMLInputElement; if (!t.matches('input[data-c]')) return;
@@ -896,8 +947,8 @@ function bindSettings(): void {
   $('ladder-full').addEventListener('click', () => { state.ladderFull = !state.ladderFull; renderLadder(); });
   $('ladder-reset').addEventListener('click', () => {
     const key = ladderKey();
-    if (S().ladderRows[key] && !confirm('Убрать свои строки и вернуть правило учителя?')) return;
-    delete S().ladderRows[key]; saveSettings(); rebuild(); render();
+    if ((S().ladderRows[key] || S().ladderRules[key]) && !confirm('Убрать свои строки и правило снятия, вернуть общее правило учителя?')) return;
+    delete S().ladderRows[key]; delete S().ladderRules[key]; saveSettings(); rebuild(); render();
   });
   $('ladder').addEventListener('input', (e) => {
     const t = e.target as HTMLInputElement; if (t.matches('input[data-c]')) onLadderEdit(t);

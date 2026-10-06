@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { parseWorkbook, shortTeacherName } from '../src/parse/journal.ts';
 import { buildReport } from '../src/core/report.ts';
 import { parseStructure, flattenColumns, structureToText } from '../src/core/structure.ts';
-import { generateLadder, ladderErrors, fillLadderGaps } from '../src/core/ladder.ts';
+import { generateLadder, ladderErrors, fillLadderGaps, generateLadderByRule } from '../src/core/ladder.ts';
 import { distribute } from '../src/core/distribute.ts';
 import { exportWorkbook, fileNameFor } from '../src/export/xlsx.ts';
 import type { Settings } from '../src/core/types.ts';
@@ -32,7 +32,7 @@ const settings: Settings = {
   strategy: 'ladder', seed: 1, spread: 1,
   thresholds: { five: 0.86, four: 0.66, three: 0.3 },
   includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
-  fontName: 'Aptos Narrow', ladders: {}, ladderRows: {}, layout: DEFAULT_LAYOUT,
+  fontName: 'Aptos Narrow', ladders: {}, ladderRows: {}, ladderRules: {}, layout: DEFAULT_LAYOUT,
   variantLabel: '',
   noteText: 'Примечание\n- Оценки БСБ должны быть внесены в emaktab.uz в течение 5–7 дней.\n- Ученики, получившие оценку «2» (0–29 %), должны быть привлечены учителем предмета к дополнительным занятиям после уроков.',
 };
@@ -119,4 +119,18 @@ console.log('записано .out/titles.xlsx', bytes3.length);
   console.log('записано .out/nested.xlsx; колонок', rn[0].columns.length, 'текст', structureToText(sn.structure));
   const back = parseStructure(structureToText(sn.structure))!;
   if (structureToText(back) !== '5; 5+(3+2)+20+10; 5') { console.log('✗ скобки в быстром вводе'); process.exitCode = 1; }
+}
+
+// правило снятия: «2.3 до 14, потом 2.4 до 6» = рукописная лестница 5 класса; шаг по 2 с чередованием
+{
+  const maxes = [5, 5, 5, 20, 10, 5];
+  const r1 = generateLadderByRule(maxes, [{ col: 3, step: 0, floor: 14 }, { col: 4, step: 0, floor: 6 }]);
+  const exp: Record<number, number[]> = { 48: [5,5,5,18,10,5], 46: [5,5,5,16,10,5], 44: [5,5,5,14,10,5], 42: [5,5,5,14,8,5], 40: [5,5,5,14,6,5] };
+  let bad = 0;
+  for (const [tt, e] of Object.entries(exp)) if (r1[Number(tt)].join() !== e.join()) { bad++; console.log('✗ правило @' + tt, r1[Number(tt)].join(' ')); }
+  const r2 = generateLadderByRule(maxes, [{ col: 3, step: 2, floor: 10 }, { col: 4, step: 2, floor: 4 }]);
+  const alt = r2[46].join(' ') === '5 5 5 18 8 5' && r2[44].join(' ') === '5 5 5 16 8 5';
+  const errs = ladderErrors(r1, maxes).length + ladderErrors(r2, maxes).length;
+  console.log('правило снятия: совпало', 5 - bad, 'из 5; чередование по 2:', alt ? 'ок' : 'НЕТ ' + r2[46].join(' ') + ' / ' + r2[44].join(' '), '; ошибок сумм', errs);
+  if (bad || !alt || errs) process.exitCode = 1;
 }

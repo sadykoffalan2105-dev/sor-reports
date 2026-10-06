@@ -87,6 +87,8 @@ export interface Settings {
   ladders: Record<string, number[][]>;
   /** Строки раскладки, заданные учителем: ключ — текст разбаловки, внутри — «общий балл» → баллы по колонкам. */
   ladderRows: Record<string, Record<string, number[]>>;
+  /** Правило снятия баллов по разбаловке: шаги (колонка, по сколько, не ниже). */
+  ladderRules: Record<string, { col: number; step: number; floor: number }[]>;
 }
 
 /** Колонка баллов в готовом отчёте. */

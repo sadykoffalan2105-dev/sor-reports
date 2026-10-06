@@ -87,6 +87,8 @@
         <details class="ladder" id="ladder-box" open>
           <summary>Раскладка по итоговому баллу <small id="ladder-status"></small></summary>
           <p class="hint">Как на бумаге: общий балл → баллы по заданиям. Строки, которых нет, программа достроит между вашими, а ниже последней — по правилу учителя. Раскладка относится к разбаловке, открытой во вкладке выше.</p>
+          <div id="ladder-rule" class="ladder-rule"></div>
+          <div class="rule-head" style="margin-top:10px"><b>Свои строки</b><span class="hint">Если какая-то строка должна отличаться от правила — задайте её вручную; остальные достроятся.</span></div>
           <div id="ladder-rows"></div>
           <div class="ladder-ctl">
             <button class="btn small" id="ladder-add" type="button">＋ строка</button>
@@ -94,6 +96,7 @@
             <button class="btn small ghost" id="ladder-full" type="button">Полная таблица</button>
             <button class="btn small ghost" id="ladder-reset" type="button">Сбросить</button>
           </div>
+          <div id="ladder-preview" class="ladder-preview"></div>
           <div id="ladder" class="ladder-wrap" hidden></div>
         </details>
 

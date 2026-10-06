@@ -9,6 +9,40 @@
  */
 export type Ladder = number[][];
 
+/** Шаг правила снятия: из какой колонки снимать, по сколько за раз (0 — всё сразу), не ниже скольких. */
+export interface RuleStep { col: number; step: number; floor: number }
+
+/**
+ * Лестница по правилу учителя: шаги идут по кругу — каждый снимает из своей колонки
+ * `step` баллов (0 — до минимума сразу), пока колонка выше `floor`; затем следующий шаг.
+ * Когда все шаги исчерпаны, остальные баллы снимаются общим правилом (generateLadder) до нуля.
+ */
+export function generateLadderByRule(maxes: number[], steps: RuleStep[]): Ladder {
+  const max = maxes.reduce((a, b) => a + b, 0);
+  const rows: Ladder = new Array(max + 1);
+  const cur = maxes.slice();
+  rows[max] = cur.slice();
+  let total = max;
+  const valid = steps.filter((s) => Number.isInteger(s.col) && s.col >= 0 && s.col < maxes.length)
+    .map((s) => ({ col: s.col, step: Math.max(0, Math.round(s.step) || 0), floor: Math.min(maxes[s.col], Math.max(0, Math.round(s.floor) || 0)) }));
+  let progress = true;
+  while (progress && valid.length) {
+    progress = false;
+    for (const st of valid) {
+      const room = cur[st.col] - st.floor;
+      if (room <= 0) continue;
+      const take = st.step > 0 ? Math.min(st.step, room) : room;
+      for (let u = 0; u < take; u++) { cur[st.col]--; total--; rows[total] = cur.slice(); }
+      progress = true;
+    }
+  }
+  // остаток — общим правилом от текущего состояния
+  const order = maxes.map((_, i) => i).sort((a, b) => maxes[b] - maxes[a] || b - a);
+  for (const i of order) while (cur[i] > 0) { cur[i]--; total--; rows[total] = cur.slice(); }
+  for (let t = 0; t <= max; t++) if (!rows[t]) rows[t] = rows[t + 1]?.slice() ?? maxes.map(() => 0);
+  return rows;
+}
+
 export function generateLadder(maxes: number[]): Ladder {
   const max = maxes.reduce((a, b) => a + b, 0);
   const rows: Ladder = new Array(max + 1);

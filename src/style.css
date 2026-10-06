@@ -274,3 +274,16 @@ table.lad { width: auto; min-width: 60%; }
 .st .part-group .pg-head input { flex: 1 1 120px; padding: 3px 6px; font-size: 12px; min-width: 90px; }
 .st .part-group .pg-sum { color: var(--muted); white-space: nowrap; }
 .st .part-group .parts { gap: 4px; }
+
+/* правило снятия баллов */
+.ladder-rule { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: #fafbfc; display: grid; gap: 6px; }
+.rule-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; font-size: 13px; }
+.rule-head .hint { flex: 1 1 320px; }
+.rule-step { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 13px; }
+.rule-step .rn { color: var(--muted); width: 18px; }
+.rule-step label { display: flex; flex-direction: row; align-items: center; gap: 6px; }
+.rule-step select { width: auto; padding: 4px 8px; font-size: 13px; }
+.rule-step input { width: 64px; padding: 4px 6px; text-align: center; }
+.ladder-preview { margin-top: 10px; }
+.ladder-t.ro td { color: var(--muted); }
+.ladder-t.ro td.cut { color: var(--ink); font-weight: 600; background: #fff7e0; }
