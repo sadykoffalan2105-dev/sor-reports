@@ -58,7 +58,7 @@ revoke all on app_users, app_devices, app_sessions, app_events from anon, authen
 -- ---------- вспомогательные ----------
 
 create or replace function app_auth(p_token text) returns app_users
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare u app_users;
 begin
   select u2.* into u from app_sessions s join app_users u2 on u2.id = s.user_id
@@ -70,7 +70,7 @@ begin
 end $$;
 
 create or replace function app_owner(p_token text) returns app_users
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare u app_users;
 begin
   u := app_auth(p_token);
@@ -87,13 +87,13 @@ $$;
 
 -- есть ли основатель (для первого запуска панели)
 create or replace function app_state() returns json
-language sql security definer set search_path = public as $$
+language sql security definer set search_path = public, extensions as $$
   select json_build_object('has_owner', exists(select 1 from app_users where role = 'owner'));
 $$;
 
 -- первый запуск: создать основателя (работает только пока основателя нет)
 create or replace function app_setup_owner(p_login text, p_password text) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare u app_users;
 begin
   if exists(select 1 from app_users where role = 'owner') then raise exception 'OWNER_EXISTS'; end if;
@@ -103,7 +103,7 @@ begin
 end $$;
 
 create or replace function app_login(p_login text, p_password text, p_device_id text, p_user_agent text) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare u app_users; t text;
 begin
   select * into u from app_users where login = lower(trim(p_login));
@@ -120,7 +120,7 @@ begin
 end $$;
 
 create or replace function app_me(p_token text) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare u app_users;
 begin
   u := app_auth(p_token);
@@ -129,7 +129,7 @@ end $$;
 
 -- свои логин и пароль (нужен старый пароль); при смене пароля остальные сессии завершаются
 create or replace function app_me_update(p_token text, p_login text, p_password_old text, p_password_new text) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare u app_users; l text := lower(trim(coalesce(p_login, '')));
 begin
   u := app_auth(p_token);
@@ -149,13 +149,13 @@ begin
 end $$;
 
 create or replace function app_logout(p_token text) returns void
-language sql security definer set search_path = public as $$
+language sql security definer set search_path = public, extensions as $$
   update app_sessions set revoked = true where token = p_token;
 $$;
 
 -- учёт времени: клиент шлёт раз в минуту, пока вкладка открыта
 create or replace function app_heartbeat(p_token text, p_device_id text, p_seconds integer) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare u app_users; s integer := least(greatest(coalesce(p_seconds, 0), 0), 600);
 begin
   u := app_auth(p_token);
@@ -165,7 +165,7 @@ end $$;
 
 -- событие: book (скачана книга), report (лист/класс), journal (загружен журнал)
 create or replace function app_event(p_token text, p_device_id text, p_kind text, p_qty integer, p_info text) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare u app_users; q integer := least(greatest(coalesce(p_qty, 1), 1), 1000);
 begin
   u := app_auth(p_token);
@@ -178,7 +178,7 @@ end $$;
 -- ---------- только основатель ----------
 
 create or replace function app_admin_users(p_token text) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform app_owner(p_token);
   return coalesce((select json_agg(row_to_json(x) order by x.last_seen desc nulls last) from (
@@ -192,7 +192,7 @@ begin
 end $$;
 
 create or replace function app_admin_create_user(p_token text, p_login text, p_password text, p_name text, p_note text) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare u app_users;
 begin
   perform app_owner(p_token);
@@ -203,7 +203,7 @@ begin
 end $$;
 
 create or replace function app_admin_set_blocked(p_token text, p_user_id uuid, p_blocked boolean) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare me app_users;
 begin
   me := app_owner(p_token);
@@ -213,7 +213,7 @@ begin
 end $$;
 
 create or replace function app_admin_set_password(p_token text, p_user_id uuid, p_password text) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform app_owner(p_token);
   if length(p_password) < 6 then raise exception 'WEAK'; end if;
@@ -222,14 +222,14 @@ begin
 end $$;
 
 create or replace function app_admin_update_user(p_token text, p_user_id uuid, p_name text, p_note text) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform app_owner(p_token);
   update app_users set name = coalesce(p_name, name), note = coalesce(p_note, note) where id = p_user_id;
 end $$;
 
 create or replace function app_admin_delete_user(p_token text, p_user_id uuid) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare me app_users;
 begin
   me := app_owner(p_token);
@@ -238,14 +238,14 @@ begin
 end $$;
 
 create or replace function app_admin_devices(p_token text, p_user_id uuid) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform app_owner(p_token);
   return coalesce((select json_agg(row_to_json(d) order by d.last_seen desc) from app_devices d where d.user_id = p_user_id), '[]'::json);
 end $$;
 
 create or replace function app_admin_events(p_token text, p_user_id uuid, p_limit integer) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform app_owner(p_token);
   return coalesce((select json_agg(row_to_json(e)) from (
@@ -253,7 +253,7 @@ begin
 end $$;
 
 create or replace function app_admin_summary(p_token text) returns json
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform app_owner(p_token);
   return json_build_object(
