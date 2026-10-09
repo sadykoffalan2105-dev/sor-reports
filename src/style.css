@@ -287,3 +287,37 @@ table.lad { width: auto; min-width: 60%; }
 .ladder-preview { margin-top: 10px; }
 .ladder-t.ro td { color: var(--muted); }
 .ladder-t.ro td.cut { color: var(--ink); font-weight: 600; background: #fff7e0; }
+
+/* вход на платформу */
+.gate { position: fixed; inset: 0; z-index: 50; background: rgba(20, 30, 40, .55); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 16px; }
+body.gated { overflow: hidden; }
+.gate-card { background: #fff; border-radius: 14px; padding: 24px 26px; width: min(420px, 100%); box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+.gate-card h2 { margin: 0 0 6px; font-size: 20px; }
+.gate-form { display: grid; gap: 10px; margin-top: 12px; }
+.gate-msg { min-height: 18px; font-size: 13px; color: var(--muted); }
+.gate-msg.err { color: var(--warn); }
+.user-chip { position: absolute; top: 14px; right: 16px; display: flex; gap: 10px; align-items: center; font-size: 13px; background: rgba(255,255,255,.14); border-radius: 999px; padding: 5px 12px; }
+.user-chip a { color: #fff; text-decoration: underline; }
+.user-chip button { border: 0; background: rgba(255,255,255,.2); color: #fff; border-radius: 999px; padding: 2px 10px; cursor: pointer; }
+.top .wrap { position: relative; }
+.foot-link { color: var(--muted); }
+/* панель основателя */
+body.admin .top { background: #312e81; }
+.card.narrow { max-width: 440px; }
+.actions .sp { flex: 1; }
+.rep.adm td, .rep.adm th { text-align: left; }
+.rep.adm td.name { white-space: normal; }
+.rep.adm tr.blocked td { color: var(--muted); }
+.rep.adm tr.open td { background: var(--accent-soft); }
+.rep.adm td.ops { white-space: nowrap; }
+.rep.adm td.ops .mini { margin-right: 4px; }
+.tag { font-size: 11px; border-radius: 999px; padding: 1px 8px; background: var(--accent-soft); color: var(--accent); }
+.tag.red { background: #fde8e8; color: #b91c1c; }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 800px) { .detail-grid { grid-template-columns: 1fr; } }
+table.mini-t { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+.mini-t th, .mini-t td { border-bottom: 1px solid var(--line); padding: 3px 6px; text-align: left; }
+.issued { margin-top: 12px; border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+.issued-box { margin: 6px 0; display: grid; gap: 2px; }
+.issued code { background: #fff; padding: 1px 6px; border-radius: 4px; user-select: all; }
+.err { color: var(--warn); }

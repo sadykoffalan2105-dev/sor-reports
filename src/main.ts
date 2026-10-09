@@ -9,6 +9,7 @@ import { buildHeader } from './core/header.ts';
 import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLadderGaps, type Ladder, type RuleStep } from './core/ladder.ts';
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
 import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
+import { initGate, track } from './platform/gate.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
 import type { ClassReport, JournalClass, Part, Preset, ReportRow, Settings, Structure, Task } from './core/types.ts';
 
@@ -158,6 +159,7 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   rebuild();
   state.active = Math.max(0, state.classes.length - 1);
   render();
+  track('journal', files.length, state.classes.slice(-files.length).map((c) => c.cls.className).join(', '));
   if (errors.length) alert(errors.join('\n'));
 }
 
@@ -1050,10 +1052,14 @@ function bindEvents(): void {
     const reports = state.classes.map((c) => c.report).filter((r): r is ClassReport => !!r);
     if (!reports.length) return;
     download(await exportWorkbook(reports, S()), fileNameFor(reports, S()));
+    track('book', 1, `${S().kind}-${S().number}: ${reports.map((r) => r.className).join(', ')}`);
+    track('report', reports.length);
   });
   $('dl-one').addEventListener('click', async () => {
     const r = state.classes[state.active]?.report; if (!r) return;
     download(await exportWorkbook([r], S()), fileNameFor([r], S()).replace('.xlsx', ` ${r.sheetName}.xlsx`));
+    track('book', 1, `${S().kind}-${S().number}: ${r.className}`);
+    track('report', 1);
   });
   $('reshuffle').addEventListener('click', () => {
     const s = S();
@@ -1072,3 +1078,4 @@ bindSettings();
 bindPhoto();
 bindEvents();
 render();
+void initGate(); // вход по логину, если платформа настроена (platform.json)
