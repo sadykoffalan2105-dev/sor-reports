@@ -127,6 +127,27 @@ begin
   return app_user_json(u);
 end $$;
 
+-- свои логин и пароль (нужен старый пароль); при смене пароля остальные сессии завершаются
+create or replace function app_me_update(p_token text, p_login text, p_password_old text, p_password_new text) returns json
+language plpgsql security definer set search_path = public as $$
+declare u app_users; l text := lower(trim(coalesce(p_login, '')));
+begin
+  u := app_auth(p_token);
+  if u.pass_hash <> crypt(coalesce(p_password_old, ''), u.pass_hash) then raise exception 'LOGIN'; end if;
+  if l <> '' and l <> u.login then
+    if length(l) < 3 then raise exception 'WEAK'; end if;
+    if exists(select 1 from app_users where login = l) then raise exception 'EXISTS'; end if;
+    update app_users set login = l where id = u.id;
+  end if;
+  if coalesce(p_password_new, '') <> '' then
+    if length(p_password_new) < 6 then raise exception 'WEAK'; end if;
+    update app_users set pass_hash = crypt(p_password_new, gen_salt('bf')) where id = u.id;
+    update app_sessions set revoked = true where user_id = u.id and token <> p_token;
+  end if;
+  select * into u from app_users where id = u.id;
+  return app_user_json(u);
+end $$;
+
 create or replace function app_logout(p_token text) returns void
 language sql security definer set search_path = public as $$
   update app_sessions set revoked = true where token = p_token;
@@ -247,7 +268,7 @@ end $$;
 
 -- доступ публичному ключу только к функциям
 revoke execute on all functions in schema public from public, anon, authenticated;
-grant execute on function app_state(), app_setup_owner(text, text), app_login(text, text, text, text), app_me(text), app_logout(text),
+grant execute on function app_state(), app_setup_owner(text, text), app_login(text, text, text, text), app_me(text), app_me_update(text, text, text, text), app_logout(text),
   app_heartbeat(text, text, integer), app_event(text, text, text, integer, text),
   app_admin_users(text), app_admin_create_user(text, text, text, text, text), app_admin_set_blocked(text, uuid, boolean),
   app_admin_set_password(text, uuid, text), app_admin_update_user(text, uuid, text, text), app_admin_delete_user(text, uuid),

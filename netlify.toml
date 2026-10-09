@@ -1,0 +1,8 @@
+# Бэкенд платформы (Netlify Functions + Blobs). Сам сайт отчётов живёт на GitHub Pages.
+[build]
+  publish = "platform-site"
+  command = "echo no-build"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

@@ -26,6 +26,7 @@ const fns = {
     return { token: t, user: uj(u) };
   },
   app_me: ({ p_token }) => uj(auth(p_token)),
+  app_me_update: ({ p_token, p_login, p_password_old, p_password_new }) => { const u = auth(p_token); if (u.pass !== (p_password_old ?? '')) fail('LOGIN'); const l = (p_login ?? '').trim().toLowerCase(); if (l && l !== u.login) { if (l.length < 3) fail('WEAK'); if (byLogin(l)) fail('EXISTS'); u.login = l; } if (p_password_new) { if (p_password_new.length < 6) fail('WEAK'); u.pass = p_password_new; for (const s of sessions.values()) if (s.user_id === u.id && s.token !== p_token) s.revoked = true; } return uj(u); },
   app_logout: ({ p_token }) => { const s = sessions.get(p_token); if (s) s.revoked = true; return null; },
   app_heartbeat: ({ p_token, p_device_id, p_seconds }) => { const u = auth(p_token); const s = Math.min(600, Math.max(0, p_seconds | 0)); const d = devices.get(devKey(p_device_id, u.id)); if (d) { d.active_seconds += s; d.last_seen = new Date().toISOString(); } return null; },
   app_event: ({ p_token, p_device_id, p_kind, p_qty, p_info }) => { const u = auth(p_token); const q = Math.min(1000, Math.max(1, p_qty | 0)); events.push({ id: events.length + 1, user_id: u.id, device_id: p_device_id, kind: p_kind, qty: q, info: p_info ?? '', at: new Date().toISOString() }); const d = devices.get(devKey(p_device_id, u.id)); if (d) { if (p_kind === 'book') d.books += q; if (p_kind === 'report') d.reports += q; } return null; },

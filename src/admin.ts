@@ -102,6 +102,15 @@ async function renderDashboard(): Promise<void> {
       <div id="issued" class="issued" hidden></div>
     </section>
     <section class="card">
+      <h2>Мои настройки</h2>
+      <form id="meform" class="grid">
+        <label>Мой логин <input id="m-login" value="${h(me!.login)}" minlength="3" /></label>
+        <label>Текущий пароль <input id="m-old" type="password" autocomplete="current-password" required /></label>
+        <label>Новый пароль <small>пусто — не менять</small><input id="m-new" type="password" autocomplete="new-password" /></label>
+        <div class="actions" style="align-items:end"><button class="btn" type="submit">Сохранить</button><span class="gate-msg" id="m-msg"></span></div>
+      </form>
+    </section>
+    <section class="card">
       <h2>Пользователи</h2>
       <div class="preview"><table class="rep adm"><thead><tr><th>Логин</th><th>Устройств</th><th>Книг</th><th>Листов</th><th>Часов</th><th>Был(а)</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     </section>`;
@@ -117,6 +126,14 @@ async function renderDashboard(): Promise<void> {
       await renderDashboard();
       showIssued(u.login, pass);
     } catch (err) { $('c-msg').className = 'gate-msg err'; $('c-msg').textContent = (err as Error).message; }
+  });
+  $('meform').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = $('m-msg'); msg.className = 'gate-msg';
+    try {
+      const u = await rpc<PlatformUser>(cfg, 'app_me_update', { p_token: token, p_login: ($('m-login') as HTMLInputElement).value.trim(), p_password_old: ($('m-old') as HTMLInputElement).value, p_password_new: ($('m-new') as HTMLInputElement).value });
+      me = u; msg.textContent = 'Сохранено'; ($('m-old') as HTMLInputElement).value = ''; ($('m-new') as HTMLInputElement).value = '';
+    } catch (err) { msg.className = 'gate-msg err'; msg.textContent = (err as Error).message; }
   });
   root().querySelector('tbody')!.addEventListener('click', onUserAction);
   if (open) void renderDetail(open);
