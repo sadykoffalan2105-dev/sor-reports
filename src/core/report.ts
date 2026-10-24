@@ -53,7 +53,8 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
   const absentNames: string[] = [];
   let n = 0;
   cls.students.forEach((st, i) => {
-    const score = st.manualScore ?? a?.scores[i] ?? null;
+    const own = st.manualScores && st.manualScores.length === maxes.length ? st.manualScores.map((v, k) => Math.max(0, Math.min(maxes[k], Math.round(v) || 0))) : null;
+    const score = st.forceAbsent ? null : own ? own.reduce((x, y) => x + y, 0) : st.manualScore ?? a?.scores[i] ?? null;
     if (score == null) {
       absentNames.push(st.name);
       if (!s.includeAbsent) return;
@@ -62,10 +63,10 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     }
     const rng = makeRng((s.seed ^ hash(st.name)) >>> 0);
     const t = Math.max(0, Math.min(max, Math.round(score)));
-    const scores = rowsOf?.[t] ? rowsOf[t].slice()
+    const scores = own ? own : rowsOf?.[t] ? rowsOf[t].slice()
       : s.strategy === 'targets' ? distributeTargets(score, maxes, columns.map((c) => c.target), rng, s.spread ?? 1)
       : distribute(score, maxes, s.strategy === 'ladder' ? 'largest' : s.strategy, rng);
-    const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i };
+    const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i, manual: !!own };
     recalcRow(row, max, s.thresholds);
     rows.push(row);
   });

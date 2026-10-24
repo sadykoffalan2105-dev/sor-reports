@@ -37,7 +37,7 @@
             <label class="full">Ученики и баллы, по одному в строке (без балла — отсутствовал)
               <textarea id="m-text" rows="6" placeholder="Алимбаев Бехруз 46&#10;Аллаёров Алиакбар — 44&#10;Цой Артём"></textarea>
             </label>
-            <button class="btn" id="m-add" type="button">Добавить класс</button>
+            <div class="row"><button class="btn" id="m-add" type="button">Добавить класс</button><button class="btn ghost" id="m-voice" type="button" title="Продиктуйте учеников по одному: «Иванов Пётр» или «Иванов Пётр сорок шесть», пауза — новая строка">🎤 Диктовать список</button></div>
           </div>
         </details>
       </section>
@@ -175,6 +175,7 @@
           <button class="btn" id="dl-one" type="button">Скачать этот класс</button>
           <button class="btn ghost" id="reshuffle" type="button">Перераспределить баллы</button>
           <button class="btn ghost" id="print" type="button">Печать</button>
+          <button class="btn accent" id="voice-btn" type="button" title="Диктовать баллы с бумажного листа: по критериям или общий балл">🎤 Голосовой ввод</button>
         </div>
         <div id="tabs" class="tabs"></div>
         <div id="preview" class="preview"></div>

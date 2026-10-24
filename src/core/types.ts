@@ -21,6 +21,8 @@ export interface Student {
   reason?: string;        // причина отсутствия (Б/П/Н) — форма 1/2
   retake?: string;        // дата сдачи (дд.мм.гггг)
   manualScore?: number | null; // балл, введённый вручную (для отсутствующих в журнале)
+  manualScores?: number[];      // баллы по критериям, введённые вручную или голосом (важнее журнала)
+  forceAbsent?: boolean;        // отмечен отсутствующим вручную или голосом
 }
 
 /** Один класс из одного файла журнала (или из ручного ввода). */
@@ -114,6 +116,7 @@ export interface ReportRow {
   reason?: string;
   retake?: string;
   studentIndex: number;  // индекс в cls.students
+  manual?: boolean;      // баллы по критериям заданы вручную/голосом
 }
 
 export interface ClassReport {

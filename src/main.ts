@@ -9,6 +9,7 @@ import { buildHeader } from './core/header.ts';
 import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLadderGaps, type Ladder, type RuleStep } from './core/ladder.ts';
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
 import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
+import { initVoice } from './voice/voice.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
 import type { ClassReport, JournalClass, Part, Preset, ReportRow, Settings, Structure, Task } from './core/types.ts';
 
@@ -585,7 +586,7 @@ function renderPreview(): void {
   const body = r.rows.map((row, ri) => {
     if (row.absent) {
       const who = r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал';
-      return `<tr class="abs" data-r="${ri}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}<td colspan="${physTotal + 3}">${who} · балл вручную: <input type="number" min="0" max="${r.max}" data-act="manual" data-s="${row.studentIndex}" placeholder="—" /></td>${del(row)}</tr>`;
+      return `<tr class="abs" data-r="${ri}" data-s="${row.studentIndex}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}<td colspan="${physTotal + 3}">${who} · балл вручную: <input type="number" min="0" max="${r.max}" data-act="manual" data-s="${row.studentIndex}" placeholder="—" /></td>${del(row)}</tr>`;
     }
     const cells = row.scores.map((v, ci) => {
       const inp = `<input type="number" min="0" max="${r.columns[ci].max}" value="${v}" data-r="${ri}" data-c="${ci}" />`;
@@ -594,7 +595,7 @@ function renderPreview(): void {
       const bi = bandIndex(v, r.columns[ci].max, kc);
       return Array.from({ length: kc }, (_, j) => (j === bi ? `<td class="band">${inp}</td>` : '<td class="band"></td>')).join('');
     }).join('');
-    return `<tr data-r="${ri}" class="${row.reason ? 'retake' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total">${row.total}</td><td data-k="pct">${pct(row.percent)}</td><td data-k="grade">${row.grade}</td>${del(row)}</tr>`;
+    return `<tr data-r="${ri}" data-s="${row.studentIndex}" class="${row.reason ? 'retake' : ''} ${row.manual ? 'manual' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total">${row.total}</td><td data-k="pct">${pct(row.percent)}</td><td data-k="grade">${row.grade}</td>${del(row)}</tr>`;
   }).join('');
   const footEl = document.createElement('tfoot');
   renderFootInto(footEl, r);
@@ -625,6 +626,8 @@ function onScoreEdit(input: HTMLInputElement): void {
   if (!Number.isFinite(v)) v = 0;
   input.classList.toggle('bad', v < 0 || v > r.columns[ci].max);
   row.scores[ci] = v;
+  const st = cs.cls.students[row.studentIndex];
+  if (st) { st.manualScores = row.scores.slice(); st.forceAbsent = false; row.manual = true; } // правка не теряется при пересчёте
   recalcRow(row, r.max, r.thresholds);
   recalcSummary(r);
   const tr = input.closest('tr')!;
@@ -1072,3 +1075,21 @@ bindSettings();
 bindPhoto();
 bindEvents();
 render();
+
+/* ---------- голосовой ввод ---------- */
+const voice = initVoice({
+  ctx: () => { const cs = state.classes[state.active]; return cs ? { cls: cs.cls, report: cs.report } : null; },
+  refresh: () => { rebuild(state.active); renderClasses(); renderPreview(); },
+  switchClass: (delta) => {
+    if (state.classes.length < 2) return '';
+    state.active = (state.active + delta + state.classes.length) % state.classes.length;
+    renderTabs(); renderPreview();
+    return state.classes[state.active].cls.className;
+  },
+  download: () => ($('dl-all') as HTMLButtonElement).click(),
+  print: () => window.print(),
+  columnNames: (r) => r.columns.map((c) => (c.path.length === 1 ? `${c.path[0] + 1} зд` : pathNum(c.path))),
+});
+$('voice-btn').addEventListener('click', () => voice.open());
+$('m-voice').addEventListener('click', () => voice.dictateInto($('m-text') as HTMLTextAreaElement, $('m-voice')));
+(window as unknown as { sorVoice: typeof voice }).sorVoice = voice; // для проверки без микрофона
