@@ -346,7 +346,7 @@ body.voice-open { padding-bottom: 150px; }
 .rep tr.voice-cur td.name { box-shadow: inset 4px 0 0 #f5c542; font-weight: 600; }
 .rep tr.manual td.name::after { content: ' ✎'; color: var(--accent); font-size: 11px; }
 #m-voice.on { background: #fde8e8; border-color: #d93636; color: #b91c1c; }
-@media (max-width: 720px) { .vb-row { flex-wrap: wrap; } .vb-ctl { grid-auto-flow: column; justify-items: start; } body.voice-open { padding-bottom: 260px; } }
+@media (max-width: 900px) { .vb-row { flex-wrap: wrap; } .vb-ctl { grid-auto-flow: column; justify-items: start; } body.voice-open { padding-bottom: 260px; } }
 @media print { .voice-bar { display: none !important; } }
 
 /* режимы работы */
