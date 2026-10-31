@@ -1,5 +1,5 @@
 // Проверка разбора голосовых фраз: node test/voice.ts
-import { parsePhrase, interpret, splitDigits, wordsToDigits, findStudent } from '../src/voice/parse.ts';
+import { parsePhrase, interpret, splitDigits, wordsToDigits, findStudent, nameLike } from '../src/voice/parse.ts';
 
 let ok = 0, bad = 0;
 const eq = (name: string, got: unknown, exp: unknown) => {
@@ -56,6 +56,33 @@ eq('начало фамилии', findStudent(['алимб'], names), 0);
 eq('не ученик', findStudent(['дальше'], names), -1);
 const p = parsePhrase('Цой сорок два');
 eq('имя + балл', [findStudent(p.words, names), p.nums.map((n) => n.value)], [3, [42]]);
+
+// звуковое сравнение фамилий
+const uz = ['Farmonov Abdulloh', 'Gayipov Sultonbek', 'Алишеров Аъзам', 'Ахтамов Темур', 'Бахрамов Умар', 'Бахтиёров Абдухалил'];
+eq('латиница ← кириллица', findStudent(['фармонов'], uz), 0);
+eq('похоже на слух', findStudent(['гаипов'], uz), 1);
+eq('бахрамов ≠ бахтиёров', findStudent(['бахрамов'], uz), 4);
+eq('бахтиеров', findStudent(['бахтиеров'], uz), 5);
+eq('фамилия + имя', findStudent(['алишеров', 'азам'], uz), 2);
+eq('чужое слово', findStudent(['тетрадь'], uz), -1);
+eq('фамилия раздельно (офлайн)', findStudent(['ахта', 'мов'], uz), 3);
+eq('падежные формы', nums('пяти десяти пятнадцати'), [5, 10, 15]);
+eq('время 5:55', nums('5:55'), [5, 55]);
+eq('исправь', parsePhrase('исправь четыре восемнадцать').commands, ['fix']);
+eq('номер', parsePhrase('номер пять').commands, ['goto']);
+
+// настоящие результаты офлайн-распознавателя (голос Windows «Irina», 16 кГц) → ученик и баллы
+{
+  const cls = ['Алимбаев Бехруз', 'Анваров Абубакр', 'Цой Артём', 'Шерматов Ислом'];
+  const m6 = [5, 5, 5, 10, 10, 15];
+  const full = (heard: string, mx: number[]) => { const q = parsePhrase(heard); return { who: findStudent(nameLike(q.words), cls), it: interpret(q.nums, mx, 0, 'criteria', q.total), cmds: q.commands }; };
+  eq('Алимбаев 5 5 5 10 10 15', full('олимп баев пять пять пять десять десять пятнадцать', m6), { who: 0, it: { kind: 'cells', start: 0, values: [5, 5, 5, 10, 10, 15] }, cmds: [] });
+  eq('Шерматов отсутствует', full('шер матов отсутствует', m6).who, 3);
+  eq('Шерматов отсутствует — команда', full('шер матов отсутствует', m6).cmds, ['absent']);
+  eq('Анваров 3 4 5 12 7 2', full('анвара в три четыре пять двенадцать семь два', [5, 5, 5, 20, 10, 5]), { who: 1, it: { kind: 'cells', start: 0, values: [3, 4, 5, 12, 7, 2] }, cmds: [] });
+  eq('Цой общий 42', full('свой артём общие сорок два', [5, 5, 5, 20, 10, 5]), { who: 2, it: { kind: 'total', value: 42 }, cmds: [] });
+  eq('без имени — только баллы', full('пять пять четыре восемнадцать девять пять', [5, 5, 5, 20, 10, 5]), { who: -1, it: { kind: 'cells', start: 0, values: [5, 5, 4, 18, 9, 5] }, cmds: [] });
+}
 
 console.log(`голос: проверок ${ok + bad}, ошибок ${bad}`);
 if (bad) process.exitCode = 1;

@@ -1,0 +1,16 @@
+{
+  "name": "Отчёты СОР / СОЧ",
+  "short_name": "Отчёты СОР",
+  "description": "Школьные отчёты СОР и СОЧ: раскидка баллов из журнала или ввод бумажных работ голосом, книга Excel с формулами и диаграммой.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#1d6f42",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

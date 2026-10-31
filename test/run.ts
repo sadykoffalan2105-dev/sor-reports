@@ -32,7 +32,7 @@ const settings: Settings = {
   strategy: 'ladder', seed: 1, spread: 1,
   thresholds: { five: 0.86, four: 0.66, three: 0.3 },
   includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
-  fontName: 'Aptos Narrow', ladders: {}, ladderRows: {}, ladderRules: {}, layout: DEFAULT_LAYOUT,
+  fontName: 'Aptos Narrow', ladders: {}, ladderRows: {}, ladderRules: {}, layout: DEFAULT_LAYOUT, workMode: 'dist',
   variantLabel: '',
   noteText: 'Примечание\n- Оценки БСБ должны быть внесены в emaktab.uz в течение 5–7 дней.\n- Ученики, получившие оценку «2» (0–29 %), должны быть привлечены учителем предмета к дополнительным занятиям после уроков.',
 };
@@ -133,4 +133,18 @@ console.log('записано .out/titles.xlsx', bytes3.length);
   const errs = ladderErrors(r1, maxes).length + ladderErrors(r2, maxes).length;
   console.log('правило снятия: совпало', 5 - bad, 'из 5; чередование по 2:', alt ? 'ок' : 'НЕТ ' + r2[46].join(' ') + ' / ' + r2[44].join(' '), '; ошибок сумм', errs);
   if (bad || !alt || errs) process.exitCode = 1;
+}
+
+// готовый отчёт: школьный образец читается обратно (разбаловка, ученики, баллы)
+{
+  const { existsSync } = await import('node:fs');
+  if (existsSync('samples/template-sor2.xlsx')) {
+    const b = readFileSync('samples/template-sor2.xlsx');
+    const rep = parseWorkbook(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), 'template.xlsx');
+    const first = rep[0];
+    const okRep = rep.length === 15 && first.className === '5-Р' && structureToText(first.structure!) === '5; 5+5+20+10; 5'
+      && first.students.length === 22 && JSON.stringify(first.students[0].manualScores) === '[5,5,5,20,10,5]' && first.teacherShort === 'Ахмедова М.М.';
+    console.log('готовый отчёт:', okRep ? 'читается верно (15 листов)' : '✗ ошибка чтения');
+    if (!okRep) process.exitCode = 1;
+  }
 }

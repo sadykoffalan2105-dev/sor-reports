@@ -21,7 +21,7 @@ export interface Student {
   reason?: string;        // причина отсутствия (Б/П/Н) — форма 1/2
   retake?: string;        // дата сдачи (дд.мм.гггг)
   manualScore?: number | null; // балл, введённый вручную (для отсутствующих в журнале)
-  manualScores?: number[];      // баллы по критериям, введённые вручную или голосом (важнее журнала)
+  manualScores?: (number | null)[]; // баллы по критериям, введённые вручную или голосом (null — ещё не введён)
   forceAbsent?: boolean;        // отмечен отсутствующим вручную или голосом
 }
 
@@ -40,6 +40,9 @@ export interface JournalClass {
   selectedAssessment?: string; // id выбранной колонки
   dateHeld?: string;    // дата проведения (дд.мм.гггг), введена вручную
   dateEntered?: string; // дата внесения в emaktab
+  structure?: Structure; // разбаловка из загруженного готового отчёта
+  imported?: boolean;    // класс взят из готового отчёта
+  teacherShort?: string; // подпись учителя из готового отчёта
 }
 
 /** Подзадание (критерий) с максимумом баллов. */
@@ -47,7 +50,7 @@ export interface JournalClass {
 export interface Part { label: string; max: number; target?: number; bands?: number; parts?: Part[] }
 /** Задание: либо одна колонка (parts пустой), либо несколько подколонок. */
 export interface Task { title: string; parts: Part[]; max: number; target?: number; bands?: number }
-export type HeaderStyle = 'full' | 'short';
+export type HeaderStyle = 'full' | 'short' | 'paren';
 /** bands — уровни по умолчанию (0/2/3/4); headerStyle — «1 задание 5 баллов» или «1 зад · 5 балл»; partNumbering — «2.1» в шапке критерия. */
 export interface Structure { tasks: Task[]; bands?: number; headerStyle?: HeaderStyle; partNumbering?: boolean }
 
@@ -85,6 +88,8 @@ export interface Settings {
   noteText: string;
   /** Макет отчёта: блоки, шаблон заголовка, подписи колонок. */
   layout: ReportLayout;
+  /** Режим: раскидка общего балла из журнала или бумажные работы (баллы по критериям голосом/вручную). */
+  workMode: 'dist' | 'paper';
   /** Устарело (полные лестницы); переносится в ladderRows при загрузке. */
   ladders: Record<string, number[][]>;
   /** Строки раскладки, заданные учителем: ключ — текст разбаловки, внутри — «общий балл» → баллы по колонкам. */
@@ -117,6 +122,9 @@ export interface ReportRow {
   retake?: string;
   studentIndex: number;  // индекс в cls.students
   manual?: boolean;      // баллы по критериям заданы вручную/голосом
+  pending?: boolean;     // бумажный режим: баллы ещё не введены
+  incomplete?: boolean;  // введены не все критерии
+  raw?: (number | null)[]; // введённые баллы с пропусками (для показа)
 }
 
 export interface ClassReport {

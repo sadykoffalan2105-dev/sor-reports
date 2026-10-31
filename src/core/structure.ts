@@ -58,6 +58,7 @@ export const pathNum = (path: number[]): string => path.map((x) => x + 1).join('
 
 /** Заголовок задания: «2 задание 40 баллов» (или «2 зад\n40 балл»), при наличии названия — ещё строка. */
 export function taskHeader(t: Task, i: number, style: HeaderStyle = 'full'): string {
+  if (style === 'paren') return `${t.title?.trim() || `${i + 1} задание`} (${pointsLabel(taskMax(t))})`;
   const base = style === 'short' ? `${i + 1} зад\n${taskMax(t)} балл` : `${i + 1} задание ${pointsLabel(taskMax(t))}`;
   return t.title?.trim() ? `${base}\n${t.title.trim()}` : base;
 }
@@ -65,6 +66,10 @@ export function taskHeader(t: Task, i: number, style: HeaderStyle = 'full'): str
 /** Заголовок критерия/группы: «5 баллов», «2.1\n5 балл», с названием — ещё строка. */
 export function partHeader(p: Part, s?: Structure, path: number[] = []): string {
   const max = partMax(p);
+  if (s?.headerStyle === 'paren') {
+    const name = [s.partNumbering && path.length > 1 ? pathNum(path) : '', p.label?.trim() ?? ''].filter(Boolean).join(' ');
+    return name ? `${name} (${pointsLabel(max)})` : `(${pointsLabel(max)})`;
+  }
   const pts = s?.headerStyle === 'short' ? `${max} балл` : pointsLabel(max);
   const num = s?.partNumbering && path.length > 1 ? `${pathNum(path)}\n` : '';
   return p.label?.trim() ? `${num}${p.label.trim()}\n${pts}` : `${num}${pts}`;
@@ -74,7 +79,7 @@ export function partHeader(p: Part, s?: Structure, path: number[] = []): string 
 export function columnName(tasks: Task[], col: ScoreColumn): string {
   const t = tasks[col.taskIndex];
   if (!t) return '';
-  if (col.path.length === 1) return t.title?.trim() ? `${col.taskIndex + 1} задание — ${t.title.trim()}` : taskHeader(t, col.taskIndex);
+  if (col.path.length === 1) return t.title?.trim() ? `${t.title.trim()} (${pointsLabel(col.max)})` : taskHeader(t, col.taskIndex);
   const node = nodeAt({ tasks }, col.path) as Part | undefined;
   return `${pathNum(col.path)}${node?.label?.trim() ? ' ' + node.label.trim() : ''} (${pointsLabel(col.max)})`;
 }

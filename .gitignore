@@ -1,7 +1,10 @@
-node_modules
-dist
-samples
-.out
 
 # Local Netlify folder
+.cache
 .netlify
+.out
+dist
+node_modules
+public/models/*.tar.gz
+public/test-speech
+samples

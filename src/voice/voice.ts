@@ -1,56 +1,41 @@
 /**
- * Голосовой ввод баллов: учитель диктует с бумажного листа — по ученику, по критериям или общий балл.
- * Распознавание — Web Speech API браузера (Chrome / Edge / Яндекс; нужен интернет), озвучка — speechSynthesis.
+ * Голосовой ввод баллов с бумажных работ: «фамилия + баллы по критериям» или по порядку списка.
+ * Движки — engine.ts (офлайн Vosk или браузерный), разбор фраз — parse.ts.
+ * Правило безопасности: если прозвучала фамилия, а уверенного совпадения нет — ничего не записываем.
  */
 import type { ClassReport, JournalClass, Student } from '../core/types.ts';
-import { parsePhrase, interpret, findStudent, wordsToDigits, sayNumbers, type Parsed } from './parse.ts';
+import { parsePhrase, interpret, findStudent, nameLike, wordsToDigits, sayNumbers, type Parsed } from './parse.ts';
+import { VoskEngine, WebSpeechEngine, beep, voskAvailable, webSpeechAvailable, isApp, type Engine, type EngineKind } from './engine.ts';
 
 export interface VoiceHost {
-  /** Активный класс и его отчёт. */
   ctx(): { cls: JournalClass; report: ClassReport | null } | null;
-  /** Пересчитать активный класс и перерисовать таблицу. */
   refresh(): void;
-  /** Переключить класс: +1 / −1. Возвращает название нового класса или ''. */
   switchClass(delta: number): string;
   download(): void;
   print(): void;
-  /** Короткие подписи колонок: «1 зд», «2.3». */
   columnNames(report: ClassReport): string[];
+  paperMode(): boolean;
 }
 
-type SR = {
-  lang: string; continuous: boolean; interimResults: boolean; maxAlternatives: number;
-  start(): void; stop(): void; abort(): void;
-  onresult: ((e: SREvent) => void) | null; onend: (() => void) | null; onerror: ((e: { error: string }) => void) | null; onstart: (() => void) | null;
-};
-type SREvent = { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string; confidence: number }> & { isFinal: boolean }> };
-
-const SRClass = (): (new () => SR) | null => {
-  const w = window as unknown as { SpeechRecognition?: new () => SR; webkitSpeechRecognition?: new () => SR };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
-};
-export const voiceSupported = (): boolean => !!SRClass();
-
-const LS = 'sor-reports.voice';
-interface Prefs { lang: string; mode: 'criteria' | 'total'; speak: boolean }
+const LS = 'sor-reports.voice2';
+interface Prefs { engine: EngineKind; lang: string; mode: 'criteria' | 'total'; speak: boolean; sound: boolean }
+const defaultEngine = (): EngineKind => (voskAvailable() && (isApp() || !webSpeechAvailable()) ? 'vosk' : voskAvailable() ? 'vosk' : 'web');
 const loadPrefs = (): Prefs => {
-  try { return { lang: 'ru-RU', mode: 'criteria', speak: true, ...(JSON.parse(localStorage.getItem(LS) ?? '{}') as Partial<Prefs>) }; } catch { return { lang: 'ru-RU', mode: 'criteria', speak: true }; }
+  const d: Prefs = { engine: defaultEngine(), lang: 'ru-RU', mode: 'criteria', speak: false, sound: true };
+  try { return { ...d, ...(JSON.parse(localStorage.getItem(LS) ?? '{}') as Partial<Prefs>) }; } catch { return d; }
 };
 const h = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-interface Snapshot { cls: JournalClass; si: number; manualScores?: number[]; manualScore?: number | null; forceAbsent?: boolean; cursor: number }
+interface Snapshot { cls: JournalClass; si: number; manualScores?: (number | null)[]; manualScore?: number | null; forceAbsent?: boolean; cursor: number }
+type Plan = { ok: true; run: () => void } | { ok: false; error: string };
 
-export function initVoice(host: VoiceHost): { open(): void; dictateInto(textarea: HTMLTextAreaElement, button: HTMLElement): void; test(text: string): string } {
+export function initVoice(host: VoiceHost) {
   const prefs = loadPrefs();
   const savePrefs = () => { try { localStorage.setItem(LS, JSON.stringify(prefs)); } catch { /* ignore */ } };
-
-  let rec: SR | null = null;
-  let listening = false;   // пользователь включил микрофон
-  let speaking = false;    // идёт озвучка — микрофон на паузе, чтобы не услышать себя
-  let si = 0;              // текущий ученик (индекс в cls.students)
-  let cursor = 0;          // следующий критерий для этого ученика
-  let clsId = '';
-  let lastMsg = '';
+  let engine: Engine | null = null;
+  let listening = false;
+  let si = 0, cursor = 0, clsId = '';
+  let lastMsg = '', interim = '';
   const history: Snapshot[] = [];
 
   /* ---------- панель ---------- */
@@ -65,277 +50,303 @@ export function initVoice(host: VoiceHost): { open(): void; dictateInto(textarea
         <div class="vb-who" id="vb-who"></div>
         <div class="vb-cells" id="vb-cells"></div>
         <div class="vb-heard" id="vb-heard"></div>
+        <div class="vb-progress" id="vb-progress" hidden><i></i></div>
       </div>
       <div class="vb-ctl">
-        <div class="vb-nav"><button class="mini" type="button" id="vb-prev" title="Предыдущий ученик (или скажите «назад»)">◀</button><button class="mini" type="button" id="vb-next" title="Следующий ученик (или «дальше»)">▶</button><button class="mini" type="button" id="vb-undo" title="Отменить последнее (или «отмена»)">↶</button></div>
+        <div class="vb-nav"><button class="mini" type="button" id="vb-prev" title="Предыдущий ученик («назад»)">◀</button><button class="mini" type="button" id="vb-next" title="Следующий ученик («дальше»)">▶</button><button class="mini" type="button" id="vb-undo" title="Отменить последнее («отмена»)">↶</button></div>
+        <select id="vb-engine" title="Распознавание">
+          <option value="vosk">офлайн — точно, без интернета</option>
+          <option value="web">браузер — онлайн</option>
+        </select>
         <select id="vb-mode" title="Что вы диктуете"><option value="criteria">баллы по критериям</option><option value="total">только общий балл</option></select>
-        <select id="vb-lang" title="Язык распознавания"><option value="ru-RU">русский</option><option value="uz-UZ">o'zbek</option><option value="en-US">English</option></select>
-        <label class="vb-chk"><input type="checkbox" id="vb-speak" /> озвучивать</label>
-        <button class="mini" type="button" id="vb-help" title="Команды">?</button>
-        <button class="mini" type="button" id="vb-close" title="Закрыть">✕</button>
+        <div class="vb-nav"><label class="vb-chk"><input type="checkbox" id="vb-sound" /> сигнал</label><label class="vb-chk"><input type="checkbox" id="vb-speak" /> озвучка</label></div>
+        <div class="vb-nav"><button class="mini" type="button" id="vb-help" title="Как диктовать">?</button><button class="mini" type="button" id="vb-close" title="Закрыть">✕</button></div>
       </div>
     </div>
     <div class="vb-helpbox" id="vb-helpbox" hidden>
-      <b>Как диктовать.</b> Программа ведёт по ученикам сверху вниз. Назовите баллы по критериям подряд: «пять пять пять шестнадцать десять пять» — строка заполнится, и программа перейдёт к следующему ученику.
-      Можно частями: «пять пять», потом «пять шестнадцать…». Одно число больше максимума первого критерия — это общий балл («сорок шесть»), он разложится по раскладке. Явно: «общий сорок шесть».
+      <b>Как диктовать.</b> Возьмите работу и скажите <b>фамилию и баллы по критериям</b>: «Алимбаев пять пять пять десять десять пятнадцать». Можно без фамилии — тогда баллы идут текущему ученику (жёлтая строка), после полной строки программа переходит к следующему.
+      Можно частями: «пять пять», потом «пять десять…». Одно число больше максимума первого критерия — общий балл («сорок шесть»), он разложится по раскладке; явно: «общий сорок шесть».
       <div class="vb-cmds">
-        <span><b>дальше / назад</b> — другой ученик</span><span><b>Цой</b> или <b>Цой сорок два</b> — перейти к ученику (и сразу балл)</span>
-        <span><b>отсутствует</b> — нет на СОР</span><span><b>все на максимум</b> — оставшиеся критерии полные</span>
-        <span><b>сначала</b> — заново с первого критерия</span><span><b>отмена</b> — вернуть как было</span>
-        <span><b>повтори</b> — прочитать строку</span><span><b>следующий класс</b>, <b>скачать</b>, <b>печать</b>, <b>стоп</b></span>
+        <span><b>дальше / назад</b> — другой ученик</span><span><b>номер пять</b> — пятый по списку</span>
+        <span><b>Цой отсутствует</b> — нет на работе</span><span><b>все на максимум</b> — остальные критерии полные</span>
+        <span><b>исправь четыре восемнадцать</b> — 4-й критерий = 18</span><span><b>сначала</b> — с первого критерия</span>
+        <span><b>отмена</b> — вернуть как было</span><span><b>повтори</b> — прочитать строку</span>
+        <span><b>следующий класс</b>, <b>скачать</b>, <b>печать</b>, <b>стоп</b></span>
       </div>
-      Распознавание работает в Chrome, Edge и Яндекс Браузере, нужен интернет и разрешение на микрофон. Говорите числа раздельно, с короткой паузой между учениками.
+      <b>Распознавание.</b> «Офлайн» работает в любом браузере и в приложении, без интернета; модель 46 МБ скачивается один раз. «Браузер» — встроенный сервис Chrome/Edge/Яндекса, нужен интернет.
+      Если фамилия не узнана, балл <b>не записывается</b> — скажите ещё раз или нажмите на строку ученика в таблице. Говорите числа раздельно; паузу делайте после всей строки.
     </div>`;
   document.body.appendChild(bar);
   const $ = <T extends HTMLElement>(id: string) => bar.querySelector('#' + id) as T;
+  ($('vb-engine') as HTMLSelectElement).value = prefs.engine;
   ($('vb-mode') as HTMLSelectElement).value = prefs.mode;
-  ($('vb-lang') as HTMLSelectElement).value = prefs.lang;
   ($('vb-speak') as HTMLInputElement).checked = prefs.speak;
+  ($('vb-sound') as HTMLInputElement).checked = prefs.sound;
+  if (!voskAvailable()) ($('vb-engine') as HTMLSelectElement).querySelector('option[value="vosk"]')!.setAttribute('disabled', '');
+  if (!webSpeechAvailable()) ($('vb-engine') as HTMLSelectElement).querySelector('option[value="web"]')!.setAttribute('disabled', '');
 
-  /* ---------- состояние ученика ---------- */
-  const ctx = () => host.ctx();
+  /* ---------- ученик ---------- */
   const syncClass = () => {
-    const c = ctx();
+    const c = host.ctx();
     if (!c) return null;
-    if (c.cls.id !== clsId) { clsId = c.cls.id; si = firstPending(c.cls); cursor = 0; }
+    if (c.cls.id !== clsId) { clsId = c.cls.id; si = firstPending(c.cls); cursor = 0; engine?.setNames(c.cls.students.map((s) => s.name)); }
     si = Math.max(0, Math.min(si, c.cls.students.length - 1));
     return c;
   };
-  /** Первый ученик без балла — удобно начать с него (для бумажного отчёта это первый в списке). */
-  const firstPending = (cls: JournalClass): number => {
-    const a = cls.assessments.find((x) => x.id === cls.selectedAssessment) ?? cls.assessments[0];
-    const i = cls.students.findIndex((st, k) => !st.forceAbsent && !st.manualScores && st.manualScore == null && (a?.scores[k] ?? null) == null);
-    return i >= 0 ? i : 0;
+  const hasData = (st: Student) => !!st.forceAbsent || !!st.manualScores?.some((v) => v != null) || st.manualScore != null;
+  const firstPending = (cls: JournalClass): number => { const i = cls.students.findIndex((st) => !hasData(st)); return i >= 0 ? i : 0; };
+  const nextPending = (cls: JournalClass, from: number): number => {
+    if (!host.paperMode()) return Math.min(cls.students.length - 1, from + 1);
+    for (let k = from + 1; k < cls.students.length; k++) if (!hasData(cls.students[k])) return k;
+    for (let k = 0; k < from; k++) if (!hasData(cls.students[k])) return k; // по кругу — пропущенные выше
+    return Math.min(cls.students.length - 1, from + 1);
   };
-  const rowOf = (report: ClassReport | null, idx: number) => report?.rows.find((r) => r.studentIndex === idx && !r.absent);
+  const rowOf = (report: ClassReport | null, idx: number) => report?.rows.find((r) => r.studentIndex === idx && !r.pending);
   const maxesOf = (report: ClassReport) => report.columns.map((c) => c.max);
-  const snapshot = (cls: JournalClass, idx: number) => { const st = cls.students[idx]; history.push({ cls, si: idx, manualScores: st.manualScores?.slice(), manualScore: st.manualScore, forceAbsent: st.forceAbsent, cursor }); if (history.length > 100) history.shift(); };
+  const snapshot = (cls: JournalClass, idx: number) => {
+    const st = cls.students[idx];
+    history.push({ cls, si: idx, manualScores: st.manualScores?.slice(), manualScore: st.manualScore, forceAbsent: st.forceAbsent, cursor });
+    if (history.length > 200) history.shift();
+  };
+  /**
+   * Баллы ученика, к которым дописываем: уже введённые; для «исправь» и «все на максимум» в режиме
+   * раскидки — строка из таблицы; иначе — пустая строка (новая работа с бумаги).
+   */
+  const baseOf = (st: Student, idx: number, report: ClassReport, keepRow: boolean): (number | null)[] => {
+    const n = report.columns.length;
+    if (st.manualScores?.length === n) return st.manualScores.slice();
+    if (keepRow && !host.paperMode()) { const row = rowOf(report, idx); if (row) return row.scores.slice(); }
+    return Array.from({ length: n }, () => null);
+  };
 
-  /* ---------- озвучка ---------- */
+  /* ---------- отклик ---------- */
   const say = (text: string) => {
     if (!prefs.speak || !text || !('speechSynthesis' in window)) return;
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = prefs.lang;
-    u.rate = 1.15;
-    const voice = speechSynthesis.getVoices().find((v) => v.lang.startsWith(prefs.lang.slice(0, 2)));
-    if (voice) u.voice = voice;
-    speaking = true;
-    try { rec?.abort(); } catch { /* ignore */ }
-    const resume = () => { speaking = false; if (listening) startRec(); };
+    u.lang = 'ru-RU'; u.rate = 1.2;
+    const v = speechSynthesis.getVoices().find((x) => x.lang.startsWith('ru'));
+    if (v) u.voice = v;
+    engine?.setPaused(true); // не слушать собственную озвучку
+    const resume = () => setTimeout(() => engine?.setPaused(false), 150);
     u.onend = resume; u.onerror = resume;
     speechSynthesis.speak(u);
   };
+  const signal = (kind: 'ok' | 'err' | 'next') => { if (prefs.sound) beep(kind); };
 
   /* ---------- отрисовка ---------- */
   const render = () => {
     const c = syncClass();
     document.querySelectorAll('.rep tr.voice-cur').forEach((tr) => tr.classList.remove('voice-cur'));
-    if (!c || !c.report) { $('vb-who').innerHTML = 'Загрузите журнал или создайте класс списком — потом диктуйте баллы.'; $('vb-cells').innerHTML = ''; return; }
+    $('vb-mic').classList.toggle('on', listening);
+    $('vb-heard').innerHTML = interim ? `<span class="vb-interim">${h(interim)}…</span>` : lastMsg;
+    if (!c || !c.report) { $('vb-who').innerHTML = 'Загрузите журнал, готовый отчёт или список класса — потом диктуйте баллы.'; $('vb-cells').innerHTML = ''; return; }
     const { cls, report } = c;
     const st = cls.students[si];
     const names = host.columnNames(report);
     const row = rowOf(report, si);
-    const vals = st?.manualScores ?? row?.scores;
-    const absent = st?.forceAbsent || (!row && st?.manualScore == null && !st?.manualScores);
+    const vals: (number | null)[] | undefined = st?.manualScores?.length === report.columns.length ? st.manualScores : row?.scores;
+    const done = cls.students.filter(hasData).length;
+    const tag = st?.forceAbsent ? '<span class="vb-tag">отсутствует</span>' : row && !row.incomplete ? `<span class="vb-tag ok">итого ${row.total}</span>` : row?.incomplete ? '<span class="vb-tag warn">не все критерии</span>' : '<span class="vb-tag">не введено</span>';
     $('vb-who').innerHTML = st
-      ? `<b>${si + 1}. ${h(st.name)}</b> <span class="vb-cls">${h(cls.className)} · ${si + 1} из ${cls.students.length}</span>${absent ? ' <span class="vb-tag">нет балла</span>' : row ? ` <span class="vb-tag ok">итого ${row.total}</span>` : ''}`
+      ? `<b>${si + 1}. ${h(st.name)}</b> ${tag}<span class="vb-cls">${h(cls.className)} · введено ${done} из ${cls.students.length}</span>`
       : 'В классе нет учеников';
-    $('vb-cells').innerHTML = names.map((n, k) => `<span class="vb-cell ${k === cursor && prefs.mode === 'criteria' ? 'cur' : ''} ${st?.manualScores ? 'set' : ''}"><small>${h(n)} · ${report.columns[k].max}</small><b>${vals ? vals[k] : '—'}</b></span>`).join('');
-    $('vb-heard').innerHTML = lastMsg;
-    $('vb-mic').classList.toggle('on', listening);
+    $('vb-cells').innerHTML = names.map((n, k) => {
+      const v = vals?.[k];
+      return `<span class="vb-cell ${k === cursor && prefs.mode === 'criteria' ? 'cur' : ''} ${v != null && st?.manualScores ? 'set' : ''}"><small>${h(n)} · ${report.columns[k].max}</small><b>${v ?? '·'}</b></span>`;
+    }).join('');
     const tr = document.querySelector(`.rep tr[data-s="${si}"]`) as HTMLElement | null;
     if (tr) { tr.classList.add('voice-cur'); if (!bar.hidden) tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   };
-  const flash = (msg: string, kind: 'ok' | 'err' | 'info' = 'info') => { lastMsg = `<span class="vb-${kind}">${msg}</span>`; render(); };
+  const show = (msg: string, kind: 'ok' | 'err' | 'info' = 'info') => { interim = ''; lastMsg = `<span class="vb-${kind}">${msg}</span>`; render(); };
 
-  /* ---------- действия ---------- */
-  const move = (delta: number) => {
-    const c = syncClass(); if (!c) return;
-    si = Math.max(0, Math.min(c.cls.students.length - 1, si + delta)); cursor = 0;
-  };
-  const afterChange = () => { host.refresh(); render(); };
-
-  const applyPhrase = (p: Parsed, heard: string): boolean => {
-    const c = syncClass();
-    // команды, не требующие класса
-    if (p.commands.includes('stop')) { stopListening(); flash(`«${h(heard)}» — микрофон выключен`); return true; }
-    if (p.commands.includes('download')) { host.download(); flash('скачиваю книгу Excel', 'ok'); say('скачиваю'); return true; }
-    if (p.commands.includes('print')) { host.print(); return true; }
+  /* ---------- разбор фразы в действие (без изменений, пока не вызван run) ---------- */
+  const plan = (p: Parsed, heard: string): Plan => {
+    if (p.commands.includes('stop')) return { ok: true, run: () => { stopListening(); show('микрофон выключен'); } };
+    if (p.commands.includes('download')) return { ok: true, run: () => { host.download(); show('скачиваю книгу Excel', 'ok'); signal('ok'); } };
+    if (p.commands.includes('print')) return { ok: true, run: () => host.print() };
     if (p.commands.includes('nextClass') || p.commands.includes('prevClass')) {
-      const name = host.switchClass(p.commands.includes('nextClass') ? 1 : -1);
-      clsId = ''; syncClass(); flash(name ? `класс ${h(name)}` : 'других классов нет', name ? 'ok' : 'err'); if (name) say(`класс ${name}`); return true;
+      return { ok: true, run: () => { const name = host.switchClass(p.commands.includes('nextClass') ? 1 : -1); clsId = ''; syncClass(); show(name ? `класс ${h(name)}` : 'других классов нет', name ? 'ok' : 'err'); signal(name ? 'next' : 'err'); } };
     }
-    if (!c || !c.report) { flash('сначала загрузите журнал или список класса', 'err'); return true; }
+    const c = syncClass();
+    if (!c || !c.report) return { ok: false, error: 'сначала загрузите журнал, отчёт или список класса' };
     const { cls, report } = c;
     const maxes = maxesOf(report);
     const names = host.columnNames(report);
 
     if (p.commands.includes('undo')) {
-      const s = history.pop();
-      if (!s) { flash('нечего отменять', 'err'); return true; }
-      const st = s.cls.students[s.si];
-      if (st) { st.manualScores = s.manualScores; st.manualScore = s.manualScore; st.forceAbsent = s.forceAbsent; }
-      if (s.cls.id === cls.id) { si = s.si; cursor = s.cursor; }
-      flash(`отменено: ${h(st?.name ?? '')}`, 'ok'); say('отменено'); afterChange(); return true;
+      return { ok: true, run: () => {
+        const s = history.pop();
+        if (!s) { show('нечего отменять', 'err'); signal('err'); return; }
+        const st = s.cls.students[s.si];
+        if (st) { st.manualScores = s.manualScores; st.manualScore = s.manualScore; st.forceAbsent = s.forceAbsent; }
+        if (s.cls.id === cls.id) { si = s.si; cursor = s.cursor; }
+        host.refresh(); show(`отменено: ${h(st?.name ?? '')}`, 'ok'); signal('ok'); say('отменено');
+      } };
     }
-    // ученик по фамилии
-    const nameWords = p.words.filter((w) => { const q = parsePhrase(w); return !q.commands.length && !q.total; }); // «дальше», «общий» — не фамилии
-    const who = findStudent(nameWords, cls.students.map((s) => s.name));
-    if (who >= 0 && who !== si) { si = who; cursor = 0; }
-    const st: Student | undefined = cls.students[si];
-    if (!st) return false;
 
-    if (p.commands.includes('repeat')) {
+    // кто: «номер N», фамилия или текущий
+    let target = si, tcursor = cursor;
+    if (p.commands.includes('goto') && p.nums.length) {
+      const k = p.nums[0].value - 1;
+      if (k < 0 || k >= cls.students.length) return { ok: false, error: `в списке ${cls.students.length} учеников` };
+      return { ok: true, run: () => { si = k; cursor = 0; show(`→ ${k + 1}. ${h(cls.students[k].name)}`); signal('next'); say(cls.students[k].name.split(' ')[0]); } };
+    }
+    const nameWords = nameLike(p.words);
+    if (nameWords.length) {
+      const who = findStudent(nameWords, cls.students.map((s) => s.name));
+      if (who < 0) return { ok: false, error: `не узнал ученика «${nameWords.join(' ')}» — скажите фамилию ещё раз или нажмите на строку` };
+      if (who !== si) { target = who; tcursor = 0; }
+    }
+    const st: Student | undefined = cls.students[target];
+    if (!st) return { ok: false, error: 'в классе нет учеников' };
+    const go = (fn: () => void) => ({ ok: true as const, run: () => { si = target; cursor = tcursor; fn(); } });
+
+    if (p.commands.includes('repeat')) return go(() => {
       const row = rowOf(report, si);
-      const txt = row ? `${st.name}: ${sayNumbers(row.scores)}. Итого ${row.total}` : `${st.name}: нет балла`;
-      flash(h(txt)); say(txt); return true;
-    }
-    if (p.commands.includes('restart')) { cursor = 0; flash(`${h(st.name)}: заново с ${h(names[0])}`); render(); return true; }
-    if (p.commands.includes('absent')) {
+      const txt = row ? `${st.name}: ${sayNumbers(row.scores)}. Итого ${row.total}` : `${st.name}: не введено`;
+      show(h(txt)); prefs.speak ? say(txt) : signal('ok');
+    });
+    if (p.commands.includes('restart')) return go(() => { cursor = 0; show(`${h(st.name)}: заново с ${h(names[0])}`); signal('ok'); });
+    if (p.commands.includes('absent')) return go(() => {
       snapshot(cls, si); st.forceAbsent = true; st.manualScores = undefined; st.manualScore = undefined;
-      flash(`${h(st.name)} — отсутствует`, 'ok'); say(`${st.name.split(' ')[0]}, отсутствует`); move(1); afterChange(); return true;
+      const nm = st.name; si = nextPending(cls, si); cursor = 0;
+      host.refresh(); show(`${h(nm)} — отсутствует`, 'ok'); signal('next'); say(`${nm.split(' ')[0]}, отсутствует`);
+    });
+    if (p.commands.includes('fix')) {
+      if (p.nums.length !== 2) return { ok: false, error: 'скажите: «исправь <номер критерия> <балл>»' };
+      const k = p.nums[0].value - 1, v = p.nums[1].value;
+      if (k < 0 || k >= maxes.length) return { ok: false, error: `критериев всего ${maxes.length}` };
+      if (v > maxes[k]) return { ok: false, error: `${v} больше максимума ${maxes[k]} для ${names[k]}` };
+      // «исправь» без фамилии — последнему продиктованному ученику этого класса
+      const fi = nameWords.length ? target : ([...history].reverse().find((x) => x.cls.id === cls.id)?.si ?? target);
+      const fst = cls.students[fi];
+      return { ok: true, run: () => {
+        snapshot(cls, fi);
+        const base = baseOf(fst, fi, report, true); base[k] = v; fst.manualScores = base; fst.forceAbsent = false;
+        host.refresh(); show(`${h(fst.name)}: ${h(names[k])} = ${v}`, 'ok'); signal('ok'); say(`${names[k]}, ${v}`);
+      } };
     }
-    if (p.commands.includes('full')) {
+    if (p.commands.includes('full')) return go(() => {
       snapshot(cls, si);
-      const base = (st.manualScores ?? rowOf(report, si)?.scores ?? maxes.map(() => 0)).slice();
+      const base = baseOf(st, si, report, true);
       for (let k = cursor; k < maxes.length; k++) base[k] = maxes[k];
       st.manualScores = base; st.forceAbsent = false;
-      const total = base.reduce((a, b) => a + b, 0);
-      flash(`${h(st.name)}: ${base.join(' ')} → ${total}`, 'ok'); say(`итого ${total}`); move(1); afterChange(); return true;
-    }
+      const total = base.reduce<number>((a, b) => a + (b ?? 0), 0);
+      const nm = st.name; si = nextPending(cls, si); cursor = 0;
+      host.refresh(); show(`${h(nm)}: ${base.map((x) => x ?? '·').join(' ')} → <b>${total}</b>`, 'ok'); signal('next'); say(`итого ${total}`);
+    });
     if (p.nums.length) {
-      const it = interpret(p.nums, maxes, cursor, prefs.mode, p.total, names);
-      if (it.kind === 'error') { flash(`«${h(heard)}»: ${h(it.message)}`, 'err'); say(it.message); return false; }
-      snapshot(cls, si);
-      if (it.kind === 'total') {
+      const it = interpret(p.nums, maxes, tcursor, prefs.mode, p.total, names);
+      if (it.kind === 'error') return { ok: false, error: it.message };
+      if (it.kind === 'total') return go(() => {
+        snapshot(cls, si);
         st.manualScore = it.value; st.manualScores = undefined; st.forceAbsent = false;
-        flash(`${h(st.name)}: общий ${it.value}`, 'ok'); say(String(it.value)); move(1); afterChange(); return true;
-      }
-      const base = (st.manualScores ?? rowOf(report, si)?.scores ?? maxes.map(() => 0)).slice();
-      if (!st.manualScores && it.start === 0) base.fill(0); // новая строка с бумаги — с нуля
-      it.values.forEach((v, j) => { base[it.start + j] = v; });
-      st.manualScores = base; st.forceAbsent = false;
-      cursor = it.start + it.values.length;
-      if (cursor >= maxes.length) {
-        const total = base.reduce((a, b) => a + b, 0);
-        flash(`${h(st.name)}: ${base.join(' ')} → <b>${total}</b>`, 'ok'); say(`${sayNumbers(it.values)}. Итого ${total}`); move(1);
-      } else {
-        flash(`${h(st.name)}: ${it.values.join(' ')} · дальше ${h(names[cursor])}`, 'ok'); say(sayNumbers(it.values));
-      }
-      afterChange(); return true;
+        const nm = st.name; si = nextPending(cls, si); cursor = 0;
+        host.refresh(); show(`${h(nm)}: общий ${it.value} — разложен по раскладке`, 'ok'); signal('next'); say(String(it.value));
+      });
+      return go(() => {
+        snapshot(cls, si);
+        const base = baseOf(st, si, report, false);
+        it.values.forEach((v, j) => { base[it.start + j] = v; });
+        st.manualScores = base; st.forceAbsent = false;
+        cursor = it.start + it.values.length;
+        const nm = st.name;
+        if (cursor >= maxes.length || base.every((x) => x != null)) {
+          const total = base.reduce<number>((a, b) => a + (b ?? 0), 0);
+          si = nextPending(cls, si); cursor = 0;
+          host.refresh(); show(`${h(nm)}: ${base.map((x) => x ?? '·').join(' ')} → <b>${total}</b>`, 'ok'); signal('next'); say(`${sayNumbers(it.values)}. Итого ${total}`);
+        } else {
+          host.refresh(); show(`${h(nm)}: ${it.values.join(' ')} · дальше ${h(names[cursor])}`, 'ok'); signal('ok'); say(sayNumbers(it.values));
+        }
+      });
     }
-    if (p.commands.includes('next')) { move(1); flash(`→ ${h(cls.students[si]?.name ?? '')}`); render(); return true; }
-    if (p.commands.includes('prev')) { move(-1); flash(`← ${h(cls.students[si]?.name ?? '')}`); render(); return true; }
-    if (who >= 0) { flash(`→ ${h(st.name)}`); say(st.name.split(' ')[0]); render(); return true; }
-    flash(`не понял: «${h(heard)}»`, 'err');
-    return false;
+    if (p.commands.includes('next')) return { ok: true, run: () => { si = nextPending(cls, si); cursor = 0; show(`→ ${h(cls.students[si]?.name ?? '')}`); signal('next'); } };
+    if (p.commands.includes('prev')) return { ok: true, run: () => { si = Math.max(0, si - 1); cursor = 0; show(`← ${h(cls.students[si]?.name ?? '')}`); signal('next'); } };
+    if (target !== si || nameWords.length) return go(() => { show(`→ ${h(st.name)} — диктуйте баллы`); signal('next'); say(st.name.split(' ')[0]); });
+    return { ok: false, error: `не понял «${h(heard)}»` };
   };
 
-  /** Обработать распознанный вариант; при неудаче — следующий из альтернатив. */
+  /** Перебрать варианты распознавания: первый, который даёт понятное действие. */
   const handle = (alts: string[]) => {
-    for (let i = 0; i < alts.length; i++) {
-      const p = parsePhrase(alts[i]);
-      const lastTry = i === alts.length - 1;
+    let firstErr = '';
+    for (const alt of alts) {
+      const p = parsePhrase(alt);
       if (!p.nums.length && !p.commands.length && !p.words.length) continue;
-      // пробуем «без последствий»: числа, которые не подходят, — к следующей альтернативе
-      if (!lastTry && p.nums.length && !p.commands.length) {
-        const c = syncClass();
-        if (c?.report) {
-          const it = interpret(p.nums, maxesOf(c.report), cursor, prefs.mode, p.total);
-          if (it.kind === 'error') continue;
-        }
-      }
-      if (applyPhrase(p, alts[i]) || lastTry) return;
+      const pl = plan(p, alt);
+      if (pl.ok) { pl.run(); return; }
+      firstErr ||= `«${h(alt)}»: ${pl.error}`;
     }
+    if (firstErr) { show(firstErr, 'err'); signal('err'); if (prefs.speak) say('не понял'); }
   };
 
   /* ---------- микрофон ---------- */
-  function startRec() {
-    const C = SRClass(); if (!C || speaking) return;
-    try { rec?.abort(); } catch { /* ignore */ }
-    const r = new C();
-    r.lang = prefs.lang; r.continuous = true; r.interimResults = true; r.maxAlternatives = 3;
-    r.onresult = (e) => {
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i];
-        if (res.isFinal) {
-          const alts = Array.from({ length: res.length }, (_, k) => res[k].transcript).filter(Boolean);
-          handle(alts);
-        } else {
-          $('vb-heard').innerHTML = `<span class="vb-interim">${h(res[0].transcript)}…</span>`;
-        }
-      }
-    };
-    r.onerror = (e) => {
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { listening = false; flash('нет доступа к микрофону: разрешите его в адресной строке браузера (значок 🎤/🔒)', 'err'); }
-      else if (e.error === 'audio-capture') { listening = false; flash('микрофон не найден', 'err'); }
-      else if (e.error === 'network') { flash('нет связи с сервисом распознавания — проверьте интернет', 'err'); }
-      else if (e.error === 'language-not-supported') { listening = false; flash('этот язык браузер не распознаёт — выберите русский', 'err'); }
-    };
-    r.onend = () => { if (rec === r && listening && !speaking) setTimeout(() => { if (listening && !speaking) startRec(); }, 200); };
-    rec = r;
-    try { r.start(); } catch { /* уже запущен */ }
-  }
-  const startListening = () => {
-    if (!SRClass()) { flash('ваш браузер не поддерживает голосовой ввод — откройте сайт в Chrome, Edge или Яндекс Браузере', 'err'); return; }
-    listening = true; startRec(); flash('слушаю… диктуйте баллы', 'ok');
+  const startListening = async () => {
+    if (listening) return;
+    const kind: EngineKind = prefs.engine === 'web' && webSpeechAvailable() ? 'web' : voskAvailable() ? 'vosk' : 'web';
+    engine = kind === 'vosk' ? new VoskEngine() : new WebSpeechEngine(prefs.lang);
+    const c = syncClass(); if (c) engine.setNames(c.cls.students.map((s) => s.name));
+    listening = true; render();
+    const prog = $('vb-progress');
+    await engine.start({
+      final: (alts) => { interim = ''; handle(alts); },
+      partial: (t) => { interim = t; $('vb-heard').innerHTML = `<span class="vb-interim">${h(t)}…</span>`; },
+      status: (k, msg, p) => {
+        if (k === 'loading') { prog.hidden = false; (prog.firstElementChild as HTMLElement).style.width = `${Math.round((p ?? 0) * 100)}%`; show(h(msg ?? '')); }
+        else if (k === 'listening') { prog.hidden = true; show('слушаю — диктуйте: фамилия и баллы по критериям', 'ok'); }
+        else if (k === 'error') { prog.hidden = true; listening = false; show(h(msg ?? 'ошибка'), 'err'); signal('err'); }
+        else if (k === 'stopped') { prog.hidden = true; }
+      },
+    });
   };
-  function stopListening() { listening = false; try { rec?.abort(); } catch { /* ignore */ } rec = null; render(); }
+  function stopListening() { listening = false; engine?.stop(); engine = null; render(); }
 
   /* ---------- кнопки ---------- */
-  $('vb-mic').addEventListener('click', () => (listening ? stopListening() : startListening()));
-  $('vb-prev').addEventListener('click', () => { move(-1); render(); });
-  $('vb-next').addEventListener('click', () => { move(1); render(); });
-  $('vb-undo').addEventListener('click', () => applyPhrase(parsePhrase('отмена'), 'отмена'));
+  $('vb-mic').addEventListener('click', () => (listening ? stopListening() : void startListening()));
+  $('vb-prev').addEventListener('click', () => handle(['назад']));
+  $('vb-next').addEventListener('click', () => handle(['дальше']));
+  $('vb-undo').addEventListener('click', () => handle(['отмена']));
+  $('vb-engine').addEventListener('change', () => { prefs.engine = ($('vb-engine') as HTMLSelectElement).value as EngineKind; savePrefs(); if (listening) { stopListening(); void startListening(); } });
   $('vb-mode').addEventListener('change', () => { prefs.mode = ($('vb-mode') as HTMLSelectElement).value as Prefs['mode']; cursor = 0; savePrefs(); render(); });
-  $('vb-lang').addEventListener('change', () => { prefs.lang = ($('vb-lang') as HTMLSelectElement).value; savePrefs(); if (listening) startRec(); });
   $('vb-speak').addEventListener('change', () => { prefs.speak = ($('vb-speak') as HTMLInputElement).checked; savePrefs(); });
+  $('vb-sound').addEventListener('change', () => { prefs.sound = ($('vb-sound') as HTMLInputElement).checked; savePrefs(); });
   $('vb-help').addEventListener('click', () => { $('vb-helpbox').hidden = !$('vb-helpbox').hidden; });
   $('vb-close').addEventListener('click', () => { stopListening(); bar.hidden = true; document.body.classList.remove('voice-open'); });
-  // клик по строке таблицы — диктовать этому ученику
-  document.addEventListener('click', (e) => {
+  document.addEventListener('click', (e) => { // клик по строке — диктовать этому ученику
     if (bar.hidden) return;
     const tr = (e.target as HTMLElement).closest('.rep tbody tr[data-s]') as HTMLElement | null;
     if (!tr || (e.target as HTMLElement).closest('input, select, button')) return;
     si = Number(tr.dataset.s); cursor = 0; render();
   });
-  // после любой перерисовки таблицы — вернуть подсветку
   new MutationObserver(() => { if (!bar.hidden) { const tr = document.querySelector(`.rep tr[data-s="${si}"]`); if (tr && !tr.classList.contains('voice-cur')) tr.classList.add('voice-cur'); } })
     .observe(document.getElementById('preview') ?? document.body, { childList: true, subtree: true });
 
-  /* ---------- диктовка списка учеников ---------- */
-  let listRec: SR | null = null;
+  /* ---------- диктовка списка учеников (браузерный движок или офлайн) ---------- */
+  let listEngine: Engine | null = null;
   const dictateInto = (ta: HTMLTextAreaElement, btn: HTMLElement) => {
-    const C = SRClass();
-    if (!C) { alert('Голосовой ввод работает в Chrome, Edge и Яндекс Браузере.'); return; }
-    if (listRec) { listRec.abort(); listRec = null; btn.classList.remove('on'); btn.textContent = '🎤 Диктовать список'; return; }
-    const r = new C();
-    r.lang = prefs.lang; r.continuous = true; r.interimResults = false; r.maxAlternatives = 1;
-    r.onresult = (e) => {
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (!e.results[i].isFinal) continue;
-        const raw = e.results[i][0].transcript.trim();
-        const p = parsePhrase(raw);
-        if (p.commands.includes('stop')) { r.abort(); return; }
-        if (p.commands.includes('undo') || p.commands.includes('clear')) { ta.value = ta.value.replace(/\n?[^\n]*$/, ''); continue; }
-        const line = wordsToDigits(raw).replace(/\s+/g, ' ').replace(/^./, (ch) => ch.toUpperCase());
+    const reset = () => { listEngine = null; btn.classList.remove('on'); btn.textContent = '🎤 Диктовать список'; };
+    if (listEngine) { listEngine.stop(); reset(); return; }
+    const kind: EngineKind = prefs.engine === 'web' && webSpeechAvailable() ? 'web' : voskAvailable() ? 'vosk' : 'web';
+    const eng = kind === 'vosk' ? new VoskEngine() : new WebSpeechEngine(prefs.lang);
+    listEngine = eng; btn.classList.add('on'); btn.textContent = '⏹ Остановить диктовку';
+    void eng.start({
+      final: (alts) => {
+        const raw = alts[0].trim(); const p = parsePhrase(raw);
+        if (p.commands.includes('stop')) { eng.stop(); reset(); return; }
+        if (p.commands.includes('undo') || p.commands.includes('clear')) { ta.value = ta.value.replace(/\n?[^\n]*$/, ''); return; }
+        const line = wordsToDigits(raw).replace(/\s+/g, ' ').replace(/(^|\s)(\p{L})/gu, (_, sp: string, ch: string) => sp + ch.toUpperCase());
         ta.value = (ta.value.trim() ? ta.value.replace(/\s*$/, '\n') : '') + line;
-        ta.scrollTop = ta.scrollHeight;
-      }
-    };
-    r.onerror = (e) => { if (e.error === 'not-allowed') alert('Разрешите доступ к микрофону в адресной строке браузера.'); };
-    listRec = r; btn.classList.add('on'); btn.textContent = '⏹ Остановить диктовку';
-    try { r.start(); } catch { /* ignore */ }
-    r.onend = () => { if (listRec === r) setTimeout(() => { try { r.start(); } catch { /* ignore */ } }, 200); };
-    const stop = () => { if (listRec === r) { listRec = null; r.onend = null; btn.classList.remove('on'); btn.textContent = '🎤 Диктовать список'; } };
-    const origAbort = r.abort.bind(r); r.abort = () => { stop(); origAbort(); };
+        ta.scrollTop = ta.scrollHeight; signal('ok');
+      },
+      partial: () => undefined,
+      status: (k, msg) => { if (k === 'error') { alert(msg); reset(); } else if (k === 'loading') btn.textContent = `⏳ ${msg?.match(/\d+ %/)?.[0] ?? 'загрузка…'}`; else if (k === 'listening') btn.textContent = '⏹ Остановить диктовку'; },
+    });
   };
 
   return {
-    open() { bar.hidden = false; document.body.classList.add('voice-open'); clsId = ''; render(); if (!listening) startListening(); },
+    open() { bar.hidden = false; document.body.classList.add('voice-open'); clsId = ''; render(); void startListening(); },
     dictateInto,
-    /** Для проверки без микрофона: обработать фразу как распознанную. */
+    /** Проверка без микрофона: обработать фразу как распознанную. */
     test(text: string) { bar.hidden = false; document.body.classList.add('voice-open'); handle([text]); return $('vb-heard').textContent ?? ''; },
   };
 }

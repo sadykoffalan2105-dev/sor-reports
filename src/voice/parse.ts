@@ -7,6 +7,7 @@
 export interface NumTok { value: number; raw: string }
 
 export type Command =
+  | 'fix' | 'goto'
   | 'next' | 'prev' | 'absent' | 'undo' | 'stop' | 'repeat' | 'restart' | 'full'
   | 'download' | 'print' | 'nextClass' | 'prevClass' | 'clear';
 
@@ -24,25 +25,31 @@ const UNITS: Record<string, number> = {
   единица: 1, двойка: 2, тройка: 3, четверка: 4, пятерка: 5,
   // узбекский (латиница и кириллица)
   nol: 0, bir: 1, ikki: 2, uch: 3, "to'rt": 4, tort: 4, besh: 5, olti: 6, yetti: 7, sakkiz: 8, "to'qqiz": 9, toqqiz: 9,
+  нуля: 0, одного: 1, двух: 2, трех: 3, четырех: 4, пяти: 5, пятью: 5, шести: 6, семи: 7, восьми: 8, девяти: 9,
   бир: 1, икки: 2, уч: 3, тўрт: 4, беш: 5, олти: 6, етти: 7, саккиз: 8, тўққиз: 9,
 };
 const TEENS: Record<string, number> = {
   десять: 10, одиннадцать: 11, двенадцать: 12, тринадцать: 13, четырнадцать: 14, пятнадцать: 15,
   шестнадцать: 16, семнадцать: 17, восемнадцать: 18, девятнадцать: 19, сто: 100,
+  десяти: 10, одиннадцати: 11, двенадцати: 12, тринадцати: 13, четырнадцати: 14, пятнадцати: 15,
+  шестнадцати: 16, семнадцати: 17, восемнадцати: 18, девятнадцати: 19,
 };
 /** Десятки, после которых может идти единица: «сорок шесть», «qirq olti», «o'n besh». */
 const TENS: Record<string, number> = {
   двадцать: 20, тридцать: 30, сорок: 40, пятьдесят: 50, шестьдесят: 60, семьдесят: 70, восемьдесят: 80, девяносто: 90,
+  двадцати: 20, тридцати: 30, сорока: 40, пятидесяти: 50,
   "o'n": 10, on: 10, yigirma: 20, "o'ttiz": 30, ottiz: 30, qirq: 40, ellik: 50,
   ўн: 10, йигирма: 20, ўттиз: 30, қирқ: 40, эллик: 50,
 };
 /** Слова-паразиты, которые не мешают разбору. */
-const FILLER = new Set(['балл', 'балла', 'баллов', 'баллы', 'по', 'и', 'а', 'это', 'ну', 'так', 'вот', 'ball', 'балл.', 'за', 'получил', 'получила', 'у', 'него', 'неё', 'нее', 'ученик', 'ученица', 'критерий', 'задание']);
+const FILLER = new Set(['балл', 'балла', 'баллов', 'баллы', 'по', 'и', 'а', 'это', 'ну', 'так', 'вот', 'ball', 'балл.', 'за', 'получил', 'получила', 'у', 'него', 'неё', 'нее', 'ученик', 'ученица', 'задание', 'тире', 'дефис', 'запятая', 'точка', 'плюс', 'потом', 'еще']);
 
 /** Слово целиком: границы — пробел или край строки; «*» в шаблоне — любые буквы (кириллица тоже). */
 const W = (alts: string): RegExp => new RegExp(`(?:^|\\s)(?:${alts.replace(/\*/g, "[\\p{L}']*")})(?=\\s|$)`, 'u');
 
 const CMD: [Command, RegExp][] = [
+  ['fix', W('исправ*|поправ*|критерий')],
+  ['goto', W('номер|под номером')],
   ['nextClass', W('следующ* класс|класс дальше|keyingi sinf')],
   ['prevClass', W('предыдущ* класс|прошл* класс|oldingi sinf')],
   ['download', W('скача*|сохрани*|выгрузи*')],
@@ -57,10 +64,10 @@ const CMD: [Command, RegExp][] = [
   ['prev', W('назад|предыдущ*|вернись|oldingi|orqaga')],
   ['next', W('дальше|далее|следующ*|пропусти*|некст|next|keyingi')],
 ];
-const TOTAL_RE = W('общий|общая|общего|итог*|всего|сумма|итого|jami|umumiy');
+const TOTAL_RE = W('общий|общая|общие|общее|общего|итог*|всего|сумма|итого|jami|umumiy');
 
 export function normalize(text: string): string {
-  return text.toLowerCase().replace(/ё/g, 'е').replace(/[‘’ʻʼ`]/g, "'").replace(/[.,;:!?«»"()]/g, ' ').replace(/\s+/g, ' ').trim();
+  return text.toLowerCase().replace(/ё/g, 'е').replace(/[‘’ʻʼ`]/g, "'").replace(/[.,;:!?«»"()|/\\]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 /** Разбор фразы на числа, слова и команды. */
@@ -168,23 +175,31 @@ export function interpret(nums: NumTok[], maxes: number[], cursor: number, mode:
   return { kind: 'cells', start: cursor, values };
 }
 
-/** Похоже ли слово на фамилию: совпадение начала (от 4 букв) или расстояние правки ≤ 2. */
+/**
+ * Найти ученика по услышанным словам (фамилия, фамилия + имя, начало фамилии) — по звучанию.
+ * −1, если уверенного совпадения нет: тогда балл не записывается чужому ученику.
+ */
 export function findStudent(words: string[], students: string[]): number {
-  if (!words.length) return -1;
-  const cand = words.slice(0, 2).map(normalize).filter((w) => w.length >= 3);
-  let best = -1, bestScore = 0;
-  students.forEach((name, i) => {
+  const cand = words.map(normalize).filter((w) => w.length >= 2).slice(0, 3);
+  if (!cand.length) return -1;
+  const scores = students.map((name) => {
     const parts = normalize(name).split(' ');
-    for (const w of cand) for (const p of parts) {
-      let score = 0;
-      if (p === w) score = 3;
-      else if (w.length >= 4 && (p.startsWith(w) || w.startsWith(p.slice(0, Math.max(4, p.length - 2))))) score = 2;
-      else if (w.length >= 5 && lev(w, p) <= 2) score = 1;
-      if (parts[0] === p) score += 0.5; // фамилия важнее имени
-      if (score > bestScore) { bestScore = score; best = i; }
+    const sur = phon(parts[0]), full = phon(parts.slice(0, 2).join('')), first = phon(parts[1] ?? '');
+    let best = 0;
+    for (let k = 1; k <= cand.length; k++) {
+      const q = phon(cand.slice(0, k).join(''));
+      if (q.length < 3) continue;
+      best = Math.max(best, sim(q, sur), sim(q, full), 0.9 * sim(q, first));
+      if (q.length >= 4 && sur.startsWith(q)) best = Math.max(best, 0.88);
+      if (sur.length >= 4 && q.startsWith(sur)) best = Math.max(best, 0.9);
     }
+    return best;
   });
-  return bestScore >= 1 ? best : -1;
+  const order = scores.map((v, i) => [v, i] as const).sort((x, y) => y[0] - x[0]);
+  const top = order[0], second = order[1] ?? [0, -1];
+  if (!top || top[0] < 0.72) return -1;
+  if (top[0] < 0.92 && top[0] - second[0] < 0.08) return -1; // два похожих — не угадываем
+  return top[1];
 }
 
 function lev(a: string, b: string): number {
@@ -198,3 +213,36 @@ function lev(a: string, b: string): number {
 
 /** Сказать числа так, чтобы синтезатор не путал: «5, 5, 16». */
 export const sayNumbers = (vals: number[]): string => vals.join(', ');
+
+/** Словарь узкого (офлайн) распознавателя: числа и команды — всё, что нужно для баллов. */
+export const GRAMMAR_WORDS: string[] = [
+  'ноль', 'один', 'одна', 'два', 'две', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять', 'десять',
+  'одиннадцать', 'двенадцать', 'тринадцать', 'четырнадцать', 'пятнадцать', 'шестнадцать', 'семнадцать', 'восемнадцать', 'девятнадцать',
+  'двадцать', 'тридцать', 'сорок', 'пятьдесят', 'сто',
+  'дальше', 'далее', 'следующий', 'назад', 'предыдущий', 'пропусти',
+  'отсутствует', 'отсутствовал', 'отсутствовала', 'нет', 'не', 'было', 'болеет',
+  'отмена', 'отмени', 'стоп', 'хватит', 'повтори', 'сначала', 'заново',
+  'общий', 'итого', 'итог', 'всего', 'все', 'на', 'максимум', 'полный', 'балл', 'баллов', 'балла',
+  'класс', 'скачать', 'скачай', 'печать', 'исправь', 'критерий', 'номер',
+];
+
+const LAT: [RegExp, string][] = [
+  [/sh/g, 'ш'], [/ch/g, 'ч'], [/zh/g, 'ж'], [/kh/g, 'х'], [/ts/g, 'ц'], [/yo/g, 'е'], [/yu/g, 'ю'], [/ya/g, 'я'], [/ye/g, 'е'],
+  [/o'/g, 'у'], [/g'/g, 'г'],
+];
+const LAT1: Record<string, string> = { a: 'а', b: 'б', c: 'к', d: 'д', e: 'е', f: 'ф', g: 'г', h: 'х', i: 'и', j: 'ж', k: 'к', l: 'л', m: 'м', n: 'н', o: 'о', p: 'п', q: 'к', r: 'р', s: 'с', t: 'т', u: 'у', v: 'в', w: 'в', x: 'х', y: 'й', z: 'з' };
+const PH: Record<string, string> = { а: 'а', о: 'а', е: 'и', э: 'и', и: 'и', ы: 'и', я: 'и', й: 'и', у: 'у', ю: 'у', б: 'п', в: 'ф', г: 'к', д: 'т', ж: 'ш', з: 'с', щ: 'ш', ц: 'с', ь: '', ъ: '', "'": '', ' ': '' };
+
+/** Звуковой ключ фамилии: «Шерматов» и «шерматова», «Farmonov» и «фармонов» дают близкие ключи. */
+export function phon(input: string): string {
+  let t = normalize(input);
+  for (const [re, r] of LAT) t = t.replace(re, r);
+  t = t.replace(/[a-z]/g, (ch) => LAT1[ch] ?? ch);
+  let out = '';
+  for (const ch of t) { const m = PH[ch] ?? ch; for (const c of m) if (c && out[out.length - 1] !== c) out += c; }
+  return out;
+}
+const sim = (a: string, b: string): number => (a && b ? 1 - lev(a, b) / Math.max(a.length, b.length) : 0);
+
+/** Слова, похожие на попытку назвать ученика (не числа, не команды, не «ну/и»). */
+export const nameLike = (words: string[]): string[] => words.filter((w) => { if (w.length < 3) return false; const q = parsePhrase(w); return !q.commands.length && !q.total && !q.nums.length; });

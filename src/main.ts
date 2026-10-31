@@ -31,7 +31,7 @@ function defaults(): Settings {
     includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
     fontName: 'Aptos Narrow',
     variantLabel: '', noteText: NOTE_DEFAULT,
-    ladders: {}, ladderRows: {}, ladderRules: {},
+    ladders: {}, ladderRows: {}, ladderRules: {}, workMode: 'dist',
     layout: mergeLayout(DEFAULT_LAYOUT, {}),
   };
 }
@@ -166,7 +166,16 @@ function addClass(cls: JournalClass): void {
   const s = S();
   if (!s.teacherShort && cls.teacher) { s.teacherShort = shortTeacherName(cls.teacher); ($('s-teacher') as HTMLInputElement).value = s.teacherShort; }
   if (cls.year && s.year !== cls.year) { s.year = cls.year; ($('s-year') as HTMLInputElement).value = s.year; }
+  if (!s.teacherShort && cls.teacherShort) { s.teacherShort = cls.teacherShort; ($('s-teacher') as HTMLInputElement).value = s.teacherShort; }
   saveSettings();
+  // готовый отчёт: его разбаловка становится пресетом класса (одинаковые — один пресет)
+  if (cls.structure) {
+    const key = structureToText(cls.structure) + '|' + cls.structure.tasks.map((t) => t.title).join('/') + '|' + (cls.structure.headerStyle ?? '');
+    let p = s.presets.find((x) => structureToText(x.structure) + '|' + x.structure.tasks.map((t) => t.title).join('/') + '|' + (x.structure.headerStyle ?? '') === key);
+    if (!p) { p = { id: newPresetId(), name: `${cls.className}${cls.group === 'девочки' ? ' (девочки)' : ''} — из отчёта`, structure: cloneStructure(cls.structure) }; s.presets.push(p); saveSettings(); }
+    state.classes.push({ cls, presetId: p.id, report: null });
+    return;
+  }
   // подобрать пресет по номеру класса («5 класс — …»)
   const grade = cls.className.match(/^\d+/)?.[0];
   const auto = grade ? s.presets.find((p) => new RegExp(`^${grade}\\s*класс`, 'i').test(p.name)) : undefined;
@@ -214,7 +223,7 @@ function renderClasses(): void {
         <div class="meta">${h(c.subject ?? '')}${c.quarter ? ' · ' + c.quarter + ' четверть' : ''} · учеников: ${c.students.length} · ${h(c.source)}</div></div>
       <button class="btn small ghost" data-act="remove" title="Убрать класс">✕</button>
       <div class="ctl">
-        <label>Колонка <select data-act="assess">${opts}</select></label>
+        <label class="only-dist">Колонка <select data-act="assess">${opts}</select></label>
         <label>Разбаловка <select data-act="preset">${presetOptions(cs.presetId, true)}</select></label>
         <label>Дата проведения <span class="row"><input type="date" data-act="dateHeld" value="${toIso(c.dateHeld)}" /><button class="btn small ghost" type="button" data-act="journal-date" title="взять дату СОР из журнала">из журнала</button></span></label>
         <label>Внесено в emaktab <input type="date" data-act="dateEntered" value="${toIso(c.dateEntered)}" /></label>
@@ -568,7 +577,9 @@ function renderPreview(): void {
   const am = selectedMax(cs.cls);
   const mismatch = am != null && r.max !== am ? `<div class="mismatch">Внимание: разбаловка даёт ${r.max} баллов, а работа в журнале — на ${am}. Проценты и оценки будут неверными.</div>` : '';
   const own = cs.presetId ? presetById(cs.presetId) : undefined;
-  const info = `<div class="info">Разбаловка класса: <b>${h(own ? own.name : currentPreset().name)}</b> · ${h(structureToText(structureFor(cs)))}${own ? ' (своя для этого класса — меняется в списке классов)' : ' (общая)'}</div>`;
+  const pend = r.rows.filter((x) => x.pending), inc = r.rows.filter((x) => x.incomplete);
+  const paperInfo = S().workMode === 'paper' ? `<div class="paper-info ${pend.length || inc.length ? 'warn' : 'ok'}">${pend.length ? `Не введено: <b>${pend.length}</b> из ${r.rows.length} — диктуйте «🎤 Голосовой ввод» или вводите в таблице (Enter — следующая клетка). Не введённые попадут в отчёт отсутствующими.` : 'Все ученики введены.'}${inc.length ? ` Не все критерии: ${inc.map((x) => h(x.name.split(' ')[0])).join(', ')}.` : ''}</div>` : '';
+  const info = paperInfo + `<div class="info">Разбаловка класса: <b>${h(own ? own.name : currentPreset().name)}</b> · ${h(structureToText(structureFor(cs)))}${own ? ' (своя для этого класса — меняется в списке классов)' : ' (общая)'}</div>`;
 
   const Ly = r.layout;
   const extra = r.absentColumns ? `<th rowspan="2">Причина отсутствия</th><th rowspan="2">Дата сдачи ${r.kind}а</th>` : '';
@@ -584,18 +595,20 @@ function renderPreview(): void {
     : '';
   const del = (row: ReportRow) => `<td class="delc"><button class="del" type="button" data-act="del-student" data-s="${row.studentIndex}" title="Убрать ученика из отчёта">✕</button></td>`;
   const body = r.rows.map((row, ri) => {
-    if (row.absent) {
+    if (row.absent && !row.pending) {
       const who = r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал';
       return `<tr class="abs" data-r="${ri}" data-s="${row.studentIndex}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}<td colspan="${physTotal + 3}">${who} · балл вручную: <input type="number" min="0" max="${r.max}" data-act="manual" data-s="${row.studentIndex}" placeholder="—" /></td>${del(row)}</tr>`;
     }
     const cells = row.scores.map((v, ci) => {
-      const inp = `<input type="number" min="0" max="${r.columns[ci].max}" value="${v}" data-r="${ri}" data-c="${ci}" />`;
+      const shown = row.raw ? row.raw[ci] : v;
+      const inp = `<input type="number" inputmode="numeric" min="0" max="${r.columns[ci].max}" value="${shown ?? ''}" placeholder="${row.pending || row.raw ? '·' : ''}" data-r="${ri}" data-c="${ci}" />`;
       const kc = ks[ci];
       if (kc <= 1) return `<td>${inp}</td>`;
+      if (shown == null) return Array.from({ length: kc }, (_, j) => (j === 0 ? `<td class="band">${inp}</td>` : '<td class="band"></td>')).join('');
       const bi = bandIndex(v, r.columns[ci].max, kc);
       return Array.from({ length: kc }, (_, j) => (j === bi ? `<td class="band">${inp}</td>` : '<td class="band"></td>')).join('');
     }).join('');
-    return `<tr data-r="${ri}" data-s="${row.studentIndex}" class="${row.reason ? 'retake' : ''} ${row.manual ? 'manual' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total">${row.total}</td><td data-k="pct">${pct(row.percent)}</td><td data-k="grade">${row.grade}</td>${del(row)}</tr>`;
+    return `<tr data-r="${ri}" data-s="${row.studentIndex}" class="${row.reason ? 'retake' : ''} ${row.manual ? 'manual' : ''} ${row.pending ? 'pending' : ''} ${row.incomplete ? 'incomplete' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total">${row.pending ? '' : row.total}</td><td data-k="pct">${row.pending ? '' : pct(row.percent)}</td><td data-k="grade">${row.pending ? '' : row.grade}</td>${del(row)}</tr>`;
   }).join('');
   const footEl = document.createElement('tfoot');
   renderFootInto(footEl, r);
@@ -622,15 +635,26 @@ function onScoreEdit(input: HTMLInputElement): void {
   if (!r) return;
   const ri = Number(input.dataset.r), ci = Number(input.dataset.c);
   const row = r.rows[ri];
+  const st = cs.cls.students[row.studentIndex];
+  if (!st) return;
+  const max = r.columns[ci].max;
+  const empty = input.value.trim() === '';
   let v = Math.round(Number(input.value));
   if (!Number.isFinite(v)) v = 0;
-  input.classList.toggle('bad', v < 0 || v > r.columns[ci].max);
-  row.scores[ci] = v;
-  const st = cs.cls.students[row.studentIndex];
-  if (st) { st.manualScores = row.scores.slice(); st.forceAbsent = false; row.manual = true; } // правка не теряется при пересчёте
+  const bad = !empty && (v < 0 || v > max);
+  input.classList.toggle('bad', bad);
+  if (bad) return; // не записываем балл больше максимума
+  const base: (number | null)[] = st.manualScores?.length === r.columns.length ? st.manualScores.slice()
+    : row.pending || S().workMode === 'paper' ? r.columns.map(() => null) : row.scores.slice();
+  base[ci] = empty ? null : v;
+  st.manualScores = base; st.forceAbsent = false;
+  const wasPending = !!row.pending;
+  row.raw = base; row.scores = base.map((x) => x ?? 0); row.manual = true;
+  row.incomplete = base.some((x) => x == null); row.pending = false; row.absent = false;
   recalcRow(row, r.max, r.thresholds);
   recalcSummary(r);
   const tr = input.closest('tr')!;
+  tr.classList.remove('pending'); tr.classList.toggle('incomplete', !!row.incomplete); tr.classList.add('manual');
   tr.querySelector('[data-k="total"]')!.textContent = String(row.total);
   tr.querySelector('[data-k="pct"]')!.textContent = pct(row.percent);
   tr.querySelector('[data-k="grade"]')!.textContent = String(row.grade);
@@ -638,6 +662,27 @@ function onScoreEdit(input: HTMLInputElement): void {
   $('preview').querySelector('.stats')!.outerHTML = renderStats(r);
   const chart = $('preview').querySelector('.chart');
   if (chart) chart.outerHTML = renderChart(r);
+  if (wasPending) pendingDirty = true; // счётчик «не введено» обновится при уходе из клетки
+}
+let pendingDirty = false;
+
+/** Бумажный режим: предупредить, если у кого-то баллы не введены или введены не полностью. */
+function confirmPending(reports: ClassReport[]): boolean {
+  if (S().workMode !== 'paper') return true;
+  const lines = reports.map((r) => {
+    const p = r.rows.filter((x) => x.pending).length, inc = r.rows.filter((x) => x.incomplete).length;
+    return p || inc ? `${r.className}: не введено ${p}${inc ? `, не все критерии ${inc}` : ''}` : '';
+  }).filter(Boolean);
+  if (!lines.length) return true;
+  return confirm(`${lines.join('\n')}\n\nНе введённые попадут в отчёт отсутствующими, пропуски критериев — нулями. Скачать?`);
+}
+
+/** Enter / ↓ в клетке — следующая клетка (в конце строки — первая клетка следующего ученика). */
+function focusNextCell(input: HTMLInputElement, back = false): void {
+  const all = Array.from($('preview').querySelectorAll<HTMLInputElement>('.rep tbody input[data-r][data-c]'));
+  const i = all.indexOf(input);
+  const next = all[i + (back ? -1 : 1)];
+  if (next) { next.focus(); next.select(); }
 }
 
 /* ---------- распознавание по фото ---------- */
@@ -874,7 +919,7 @@ function bindSettings(): void {
   });
   $('struct-editor').addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button[data-act]') as HTMLElement | null; if (b) onStructClick(b); });
 
-  $('s-hstyle').addEventListener('change', () => { const st = cloneStructure(editingStructure()); st.headerStyle = ($('s-hstyle') as HTMLSelectElement).value === 'short' ? 'short' : 'full'; setStructure(st); rebuild(); render(); });
+  $('s-hstyle').addEventListener('change', () => { const st = cloneStructure(editingStructure()); { const v = ($('s-hstyle') as HTMLSelectElement).value; st.headerStyle = v === 'short' || v === 'paren' ? v : 'full'; } setStructure(st); rebuild(); render(); });
   $('s-pnum').addEventListener('change', () => { const st = cloneStructure(editingStructure()); st.partNumbering = ($('s-pnum') as HTMLInputElement).checked || undefined; setStructure(st); rebuild(); render(); });
   $('s-abscols2').addEventListener('change', () => { S().absentColumns = ($('s-abscols2') as HTMLInputElement).checked; ($('s-absentcols') as HTMLInputElement).checked = S().absentColumns; saveSettings(); rebuild(); render(); });
   $('s-labels-go').addEventListener('click', () => { ($('layout-box') as HTMLDetailsElement).open = true; $('l-name').scrollIntoView({ block: 'center', behavior: 'smooth' }); ($('l-name') as HTMLInputElement).focus(); });
@@ -1026,6 +1071,20 @@ function bindEvents(): void {
   $('preview').addEventListener('input', (e) => {
     const t = e.target as HTMLInputElement; if (t.matches('input[data-r]')) onScoreEdit(t);
   });
+  $('preview').addEventListener('keydown', (e) => {
+    const t = e.target as HTMLInputElement;
+    if (!t.matches('input[data-r][data-c]')) return;
+    if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); focusNextCell(t, e.shiftKey); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); focusNextCell(t, true); }
+  });
+  $('preview').addEventListener('focusout', (e) => { // после ввода в «не введённую» строку — обновить счётчики, сохранив фокус
+    if (!pendingDirty) return;
+    const to = (e as FocusEvent).relatedTarget as HTMLInputElement | null;
+    pendingDirty = false;
+    const keep = to?.matches('input[data-r][data-c]') ? { r: to.dataset.r, c: to.dataset.c } : null;
+    rebuild(state.active); renderPreview();
+    if (keep) { const el = $('preview').querySelector<HTMLInputElement>(`input[data-r="${keep.r}"][data-c="${keep.c}"]`); el?.focus(); el?.select(); }
+  });
   $('preview').addEventListener('change', (e) => { // причина, дата сдачи, ручной балл
     const t = e.target as HTMLInputElement;
     if (t.matches('input[data-r]')) { if ((state.classes[state.active]?.report?.bands ?? 1) > 1) renderPreview(); return; }
@@ -1052,10 +1111,12 @@ function bindEvents(): void {
   $('dl-all').addEventListener('click', async () => {
     const reports = state.classes.map((c) => c.report).filter((r): r is ClassReport => !!r);
     if (!reports.length) return;
+    if (!confirmPending(reports)) return;
     download(await exportWorkbook(reports, S()), fileNameFor(reports, S()));
   });
   $('dl-one').addEventListener('click', async () => {
     const r = state.classes[state.active]?.report; if (!r) return;
+    if (!confirmPending([r])) return;
     download(await exportWorkbook([r], S()), fileNameFor([r], S()).replace('.xlsx', ` ${r.sheetName}.xlsx`));
   });
   $('reshuffle').addEventListener('click', () => {
@@ -1076,6 +1137,29 @@ bindPhoto();
 bindEvents();
 render();
 
+/* ---------- приложение: установка (PWA) и офлайн-работа ---------- */
+const inApp = /Electron/i.test(navigator.userAgent);
+if (inApp) $('exe-link').hidden = true;
+if ('serviceWorker' in navigator && import.meta.env.PROD && !inApp) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => undefined); });
+}
+let installEvt: (Event & { prompt(): Promise<void> }) | null = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e as typeof installEvt; $('install-btn').hidden = false; });
+$('install-btn').addEventListener('click', async () => { if (!installEvt) return; await installEvt.prompt(); installEvt = null; $('install-btn').hidden = true; });
+window.addEventListener('appinstalled', () => { $('install-btn').hidden = true; });
+
+/* ---------- режим работы ---------- */
+function applyMode(): void {
+  const mode = S().workMode;
+  document.body.dataset.mode = mode;
+  document.querySelectorAll<HTMLButtonElement>('#modebar [data-mode]').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+}
+document.querySelectorAll<HTMLButtonElement>('#modebar [data-mode]').forEach((b) => b.addEventListener('click', () => {
+  S().workMode = b.dataset.mode === 'paper' ? 'paper' : 'dist';
+  saveSettings(); applyMode(); rebuild(); render();
+}));
+applyMode();
+
 /* ---------- голосовой ввод ---------- */
 const voice = initVoice({
   ctx: () => { const cs = state.classes[state.active]; return cs ? { cls: cs.cls, report: cs.report } : null; },
@@ -1089,7 +1173,9 @@ const voice = initVoice({
   download: () => ($('dl-all') as HTMLButtonElement).click(),
   print: () => window.print(),
   columnNames: (r) => r.columns.map((c) => (c.path.length === 1 ? `${c.path[0] + 1} зд` : pathNum(c.path))),
+  paperMode: () => S().workMode === 'paper',
 });
 $('voice-btn').addEventListener('click', () => voice.open());
 $('m-voice').addEventListener('click', () => voice.dictateInto($('m-text') as HTMLTextAreaElement, $('m-voice')));
 (window as unknown as { sorVoice: typeof voice }).sorVoice = voice; // для проверки без микрофона
+(window as unknown as { sorVoskTest: unknown }).sorVoskTest = (url: string) => import('./voice/engine.ts').then((m) => m.voskRecognizeFile(url));

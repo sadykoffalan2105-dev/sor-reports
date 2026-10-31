@@ -5,24 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Отчёты СОР / СОЧ</title>
     <meta name="description" content="Генератор школьных отчётов по СОР и СОЧ из выгрузки журнала emaktab: разбаловка по заданиям, формулы, диаграмма." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#1d6f42" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d6f42'/%3E%3Cpath d='M8 9h16v3H8zm0 6h16v3H8zm0 6h10v3H8z' fill='%23fff'/%3E%3C/svg%3E" />
   </head>
   <body>
     <header class="top">
       <div class="wrap">
-        <h1>Отчёты СОР / СОЧ</h1>
+        <div class="top-row"><h1>Отчёты СОР / СОЧ</h1><div class="app-links"><button class="btn small" id="install-btn" type="button" hidden>⬇ Установить приложение</button><a class="btn small" id="exe-link" href="https://github.com/sadykoffalan2105-dev/sor-reports/releases/latest" target="_blank" rel="noopener" title="Приложение для Windows — работает без интернета">💻 Для Windows (exe)</a></div></div>
         <p class="sub">Загрузите выгрузку журнала — получите готовую книгу Excel: лист на класс, разбаловка по заданиям, формулы, итоги и диаграмма.</p>
       </div>
     </header>
 
     <main class="wrap">
+      <nav class="modebar" id="modebar" aria-label="Режим работы">
+        <button type="button" data-mode="dist"><b>📊 Раскидка по журналу</b><span>общий балл из emaktab раскладывается по заданиям</span></button>
+        <button type="button" data-mode="paper"><b>🎤 Бумажные работы</b><span>баллы по каждому критерию — голосом или с клавиатуры</span></button>
+      </nav>
       <section class="card" id="sec-files">
         <h2><span class="num">1</span> Журналы классов</h2>
         <p class="step-hint">По одному файлу на класс. Баллы за СОР / СОЧ берутся из журнала; здесь же выбирается колонка работы, разбаловка класса и даты.</p>
         <label class="drop" id="drop">
           <input type="file" id="file" multiple accept=".xls,.xlsx,.xlsm,.csv" hidden />
           <strong>Перетащите файлы журнала сюда</strong> или нажмите, чтобы выбрать
-          <small>.xls / .xlsx из emaktab.uz — можно сразу несколько классов</small>
+          <small>журналы emaktab (.xls / .xlsx) или готовые отчёты этого сайта (.xlsx) — классы добавляются к уже загруженным</small>
         </label>
         <div id="grades" class="grades"></div>
         <div id="classes" class="classes"></div>
@@ -76,7 +83,7 @@
         </div>
         <div class="hdr-tools">
           <span class="hdr-title">Шапка таблицы</span>
-          <label class="inline">Подпись задания <select id="s-hstyle" title="Как подписывать задания в шапке"><option value="full">«1 задание 5 баллов»</option><option value="short">«1 зад · 5 балл»</option></select></label>
+          <label class="inline">Подпись задания <select id="s-hstyle" title="Как подписывать задания в шапке"><option value="full">«1 задание 5 баллов»</option><option value="short">«1 зад · 5 балл»</option><option value="paren">«Знание (5 баллов)» — название и баллы в скобках</option></select></label>
           <label class="inline chk"><input type="checkbox" id="s-pnum" /> нумерация критериев (2.1, 2.2…)</label>
           <label class="inline">Уровни под критериями <select id="s-bands" title="Колонки-диапазоны под каждым критерием: балл ставится в свой диапазон (как в форме 2026). Для отдельного критерия — в его ячейке"><option value="0">нет</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
           <label class="inline chk"><input type="checkbox" id="s-abscols2" /> колонки «Причина отсутствия», «Дата сдачи»</label>
@@ -84,7 +91,7 @@
         </div>
         <div id="struct-editor" class="struct-editor"></div>
 
-        <details class="ladder" id="ladder-box" open>
+        <details class="ladder only-dist" id="ladder-box" open>
           <summary>Раскладка по итоговому баллу <small id="ladder-status"></small></summary>
           <p class="hint">Как на бумаге: общий балл → баллы по заданиям. Строки, которых нет, программа достроит между вашими, а ниже последней — по правилу учителя. Раскладка относится к разбаловке, открытой во вкладке выше.</p>
           <div id="ladder-rule" class="ladder-rule"></div>
@@ -100,9 +107,9 @@
           <div id="ladder" class="ladder-wrap" hidden></div>
         </details>
 
-        <h3 class="sub-h">Как раскидывать и оценивать</h3>
+        <h3 class="sub-h"><span class="only-dist">Как раскидывать и оценивать</span><span class="only-paper">Оценивание</span></h3>
         <div class="grid">
-          <label>Как раскидывать недобор
+          <label class="only-dist">Как раскидывать недобор
             <select id="s-strategy">
               <option value="ladder">По лестнице баллов (как у учителя)</option>
               <option value="targets">По целям заданий (процент за каждое, со случайностью)</option>
@@ -111,10 +118,10 @@
               <option value="random">Случайно, с сидом</option>
             </select>
           </label>
-          <label>Сид случайности
+          <label class="only-dist">Сид случайности
             <div class="row"><input id="s-seed" type="number" min="0" /><button class="btn ghost" id="s-reseed" type="button" title="Новый сид">↻</button></div>
           </label>
-          <label>Разброс при раскидке <small>0 — без случайности, 1–5 — сильнее</small>
+          <label class="only-dist">Разброс при раскидке <small>0 — без случайности, 1–5 — сильнее</small>
             <input id="s-spread" type="number" min="0" max="5" />
           </label>
           <label>Цифра варианта формы <small>фиолетовая, справа от заголовка</small>
@@ -173,7 +180,7 @@
         <div class="actions">
           <button class="btn primary" id="dl-all" type="button">Скачать книгу — все классы (.xlsx)</button>
           <button class="btn" id="dl-one" type="button">Скачать этот класс</button>
-          <button class="btn ghost" id="reshuffle" type="button">Перераспределить баллы</button>
+          <button class="btn ghost only-dist" id="reshuffle" type="button">Перераспределить баллы</button>
           <button class="btn ghost" id="print" type="button">Печать</button>
           <button class="btn accent" id="voice-btn" type="button" title="Диктовать баллы с бумажного листа: по критериям или общий балл">🎤 Голосовой ввод</button>
         </div>

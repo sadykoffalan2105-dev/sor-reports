@@ -1,0 +1,28 @@
+appId: uz.school300.sorreports
+productName: Отчёты СОР СОЧ
+copyright: sadykoffalan2105-dev
+directories:
+  output: release
+files:
+  - dist/**
+  - electron/**
+  - package.json
+extraMetadata:
+  main: electron/main.cjs
+asar: false
+win:
+  icon: public/icons/app.ico
+  target:
+    - target: portable
+      arch: [x64]
+    - target: nsis
+      arch: [x64]
+portable:
+  artifactName: Otchety-SOR-${version}-portable.exe
+nsis:
+  artifactName: Otchety-SOR-${version}-setup.exe
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Отчёты СОР СОЧ
+publish: null

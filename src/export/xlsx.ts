@@ -65,7 +65,10 @@ function uniqueSheetName(name: string, used: Set<string>): string {
 }
 
 /** Заполнить лист по образцу школьного отчёта. Возвращает задание на диаграмму. */
-export function fillSheet(ws: ExcelJS.Worksheet, r: ClassReport, s: Settings): ChartJob {
+export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Settings): ChartJob {
+  // «не введено» в бумажном режиме — в отчёт как отсутствующие (или не выводятся без галочки)
+  const kept = report.rows.filter((x) => !x.pending || s.includeAbsent);
+  const r: ClassReport = kept.length === report.rows.length ? report : { ...report, rows: kept.map((x, i) => ({ ...x, n: i + 1 })) };
   const font = { name: s.fontName || 'Aptos Narrow', size: 11 };
   const L = layoutFor(r);
   const sheetRef = `'${ws.name.replace(/'/g, "''")}'`;

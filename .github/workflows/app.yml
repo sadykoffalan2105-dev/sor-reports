@@ -1,0 +1,41 @@
+name: Windows app (exe)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Speech model
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip -OutFile model.zip
+          Expand-Archive model.zip -DestinationPath model
+          New-Item -ItemType Directory -Force public/models | Out-Null
+          tar -czf public/models/vosk-ru.tar.gz -C model/vosk-model-small-ru-0.22 .
+      - run: npm run build
+      - name: Build exe
+        run: |
+          npm i --no-save electron@33 electron-builder@25
+          npx electron-builder --win --publish never
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(node -p "require('./package.json').version")
+          TAG="v$VER"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Отчёты СОР/СОЧ $VER" --notes "Приложение для Windows: portable (без установки) и setup (с установкой). Голосовой ввод работает без интернета."
+          gh release upload "$TAG" release/*.exe --clobber

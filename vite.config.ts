@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 export default defineConfig({
   base: './',
   build: {
-    chunkSizeWarningLimit: 1600,
+    chunkSizeWarningLimit: 6000,
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),

@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { AssessmentColumn, JournalClass, Kind, Student } from '../core/types.ts';
+import { parseReportSheet } from './report.ts';
 
 type Cell = string | number | null;
 
@@ -20,6 +21,8 @@ export function parseWorkbook(data: ArrayBuffer, fileName: string): JournalClass
   for (const name of wb.SheetNames) {
     const ws = wb.Sheets[name];
     if (!ws) continue;
+    const report = parseReportSheet(ws, name, fileName); // готовый отчёт этого сайта или школьная форма
+    if (report) { out.push(report); continue; }
     const rows = XLSX.utils.sheet_to_json<Cell[]>(ws, { header: 1, raw: true, defval: null, blankrows: false });
     const cls = parseJournalRows(rows, fileName, name) ?? parseSimpleRows(rows, fileName, name);
     if (cls && cls.students.length) out.push(cls);

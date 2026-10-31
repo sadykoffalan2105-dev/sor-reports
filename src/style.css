@@ -348,3 +348,29 @@ body.voice-open { padding-bottom: 150px; }
 #m-voice.on { background: #fde8e8; border-color: #d93636; color: #b91c1c; }
 @media (max-width: 720px) { .vb-row { flex-wrap: wrap; } .vb-ctl { grid-auto-flow: column; justify-items: start; } body.voice-open { padding-bottom: 260px; } }
 @media print { .voice-bar { display: none !important; } }
+
+/* режимы работы */
+.modebar { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0 0; }
+.modebar button { display: grid; gap: 2px; text-align: left; border: 2px solid var(--line); background: #fff; border-radius: 12px; padding: 10px 14px; cursor: pointer; color: var(--ink); }
+.modebar button b { font-size: 16px; }
+.modebar button span { font-size: 12px; color: var(--muted); }
+.modebar button.active { border-color: var(--accent); background: var(--accent-soft); }
+body[data-mode="paper"] .only-dist { display: none !important; }
+body:not([data-mode="paper"]) .only-paper { display: none !important; }
+body[data-mode="paper"] #voice-btn { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+.paper-info { border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; font-size: 14px; }
+.paper-info.warn { background: var(--warn-soft); color: #7c4a03; }
+.paper-info.ok { background: var(--accent-soft); color: var(--accent); }
+.rep tr.pending td.name { color: var(--muted); }
+.rep tr.pending td input { border: 1px dashed #c9d1d9; background: #fff; }
+.rep tr.incomplete td { background: #fffbea; }
+.rep tr.incomplete td input:placeholder-shown { border: 1px dashed #e0a800; background: #fff; }
+.vb-tag.warn { background: #6b5200; color: #ffe8a3; }
+.vb-progress { height: 6px; background: #2b3b48; border-radius: 999px; overflow: hidden; }
+.vb-progress i { display: block; height: 100%; width: 0; background: #9de3b5; transition: width .2s; }
+@media (max-width: 600px) { .modebar { grid-template-columns: 1fr; } }
+
+.top-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.app-links { display: flex; gap: 8px; flex-wrap: wrap; }
+.app-links .btn { background: rgba(255,255,255,.15); color: #fff; border-color: rgba(255,255,255,.35); text-decoration: none; }
+.app-links .btn:hover { background: rgba(255,255,255,.25); }

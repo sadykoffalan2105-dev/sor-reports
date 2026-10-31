@@ -53,8 +53,17 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
   const absentNames: string[] = [];
   let n = 0;
   cls.students.forEach((st, i) => {
-    const own = st.manualScores && st.manualScores.length === maxes.length ? st.manualScores.map((v, k) => Math.max(0, Math.min(maxes[k], Math.round(v) || 0))) : null;
-    const score = st.forceAbsent ? null : own ? own.reduce((x, y) => x + y, 0) : st.manualScore ?? a?.scores[i] ?? null;
+    const raw = st.manualScores && st.manualScores.length === maxes.length && st.manualScores.some((v) => v != null)
+      ? st.manualScores.map((v, k) => (v == null ? null : Math.max(0, Math.min(maxes[k], Math.round(v) || 0)))) : null;
+    const own = raw ? raw.map((v) => v ?? 0) : null;
+    const paper = s.workMode === 'paper';
+    const fromJournal = paper ? null : a?.scores[i] ?? null; // в бумажном режиме журнал не раскидывается
+    const score = st.forceAbsent ? null : own ? own.reduce((x, y) => x + y, 0) : st.manualScore ?? fromJournal;
+    if (score == null && paper && !st.forceAbsent) { // ещё не введено — строка видна и редактируется
+      absentNames.push(st.name);
+      rows.push({ n: ++n, name: st.name, absent: true, pending: true, scores: columns.map(() => 0), raw: columns.map(() => null), total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i });
+      return;
+    }
     if (score == null) {
       absentNames.push(st.name);
       if (!s.includeAbsent) return;
@@ -66,7 +75,7 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     const scores = own ? own : rowsOf?.[t] ? rowsOf[t].slice()
       : s.strategy === 'targets' ? distributeTargets(score, maxes, columns.map((c) => c.target), rng, s.spread ?? 1)
       : distribute(score, maxes, s.strategy === 'ladder' ? 'largest' : s.strategy, rng);
-    const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i, manual: !!own };
+    const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i, manual: !!own, raw: raw ?? undefined, incomplete: !!raw && raw.some((v) => v == null) };
     recalcRow(row, max, s.thresholds);
     rows.push(row);
   });

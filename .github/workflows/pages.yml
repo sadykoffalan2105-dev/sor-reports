@@ -24,7 +24,16 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      # офлайн-модель русской речи (Vosk, Apache 2.0) — скачивается при сборке, в репозитории не хранится
+      - name: Speech model
+        run: |
+          curl -sL -o model.zip https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip
+          unzip -q model.zip
+          mkdir -p public/models
+          tar -czf public/models/vosk-ru.tar.gz -C vosk-model-small-ru-0.22 .
+          ls -la public/models
       - run: npm run build
+      - run: node test/voice.ts
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

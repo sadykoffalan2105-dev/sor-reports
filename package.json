@@ -1,7 +1,7 @@
 {
   "name": "sor-reports",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,7 +16,10 @@
     "@anthropic-ai/sdk": "^0.130.0",
     "exceljs": "^4.4.0",
     "jszip": "^3.10.2",
+    "vosk-browser": "^0.0.8",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.6.5"
-  }
+  },
+  "description": "Отчёты СОР/СОЧ: раскидка баллов из журнала и ввод бумажных работ голосом, книга Excel",
+  "author": "sadykoffalan2105-dev"
 }
