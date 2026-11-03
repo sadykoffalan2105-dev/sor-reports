@@ -719,9 +719,9 @@ function renderPreview(): void {
   const hs = grid.rows; // строк в шапке
   const headRows: string[] = Array.from({ length: hs }, () => '');
   for (const cell of grid.cells) headRows[cell.row] += `<th ${cell.rowSpan > 1 ? `rowspan="${cell.rowSpan}"` : ''} ${cell.colSpan > 1 ? `colspan="${cell.colSpan}"` : ''} class="${cell.vertical ? 'vert' : ''}">${br(cell.text)}</th>`;
-  const REASONS = ['', 'Б', 'П', 'Н', 'У'];
+  const REASONS = ['', 'Б', 'П', 'Н', 'У', 'ЗГ'];
   const reasonCells = (row: ReportRow) => r.absentColumns
-    ? `<td><select data-act="reason" data-s="${row.studentIndex}" title="Причина отсутствия: Б — болел, П — пропуск, Н — не был, У — уважительная">${REASONS.map((x) => `<option value="${x}" ${x === (row.reason ?? '') ? 'selected' : ''}>${x || '—'}</option>`).join('')}</select></td><td><input type="date" data-act="retake" data-s="${row.studentIndex}" value="${toIso(row.retake)}" title="Дата сдачи" /></td>`
+    ? `<td><select data-act="reason" data-s="${row.studentIndex}" title="Причина отсутствия: Б — болел, П — пропуск, Н — не был, У — уважительная, ЗГ — заграницей">${REASONS.map((x) => `<option value="${x}" ${x === (row.reason ?? '') ? 'selected' : ''}>${x || '—'}</option>`).join('')}</select></td><td><input type="date" data-act="retake" data-s="${row.studentIndex}" value="${toIso(row.retake)}" title="Дата сдачи" /></td>`
     : '';
   const del = (row: ReportRow) => `<td class="delc">${row.fromJournal ? `<button class="ok" type="button" data-act="confirm-row" data-s="${row.studentIndex}" title="Подтвердить эту разбаловку — строка станет введённой (✎)">✓</button>` : ''}<button class="del" type="button" data-act="del-student" data-s="${row.studentIndex}" title="Убрать ученика из отчёта">✕</button></td>`;
   const body = r.rows.map((row, ri) => {
