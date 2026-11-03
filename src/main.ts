@@ -165,12 +165,16 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   rebuild();
   state.active = Math.max(0, Math.min(state.classes.length - 1, firstNew)); // первый класс из этих файлов (СОР раньше СОЧ)
   render();
-  // голосовая база: сразу разобрать имена всех загруженных классов (в фоне)
+  prepareVoiceNames();
+  if (errors.length) alert(errors.join('\n'));
+}
+
+/** Голосовая база: сразу разобрать имена всех загруженных классов (в фоне). */
+function prepareVoiceNames(): void {
   void prepareNames(state.all.flatMap((cs) => cs.cls.students.map((st) => st.name)), (st) => {
     const el = $('voice-base'); el.hidden = false; el.textContent = st.text; el.classList.toggle('busy', st.learning);
     el.title = 'Все имена загруженных классов разобраны и ищутся по звучанию за миллисекунды. «Записано произношение» — для этих учеников в базе уже есть, как распознаватель слышит их фамилии (в приложении для Windows записывается само для всех). Остальных можно один раз прочитать кнопкой «🎓 Выучить имена».';
   });
-  if (errors.length) alert(errors.join('\n'));
 }
 
 /** Последняя колонка вида с баллами (или просто последняя этого вида). */
@@ -1241,13 +1245,69 @@ function bindEvents(): void {
 }
 
 function render(): void {
+  renderAutosave();
   renderGrades(); renderClasses(); renderEditTabs(); renderPresetBar(); renderStructureView(); renderStructureEditor(); renderLadder(); renderTabs(); renderPreview();
 }
+
+/* ---------- автосохранение работы: классы, правки, голос — переживают обновление страницы ---------- */
+const LSW = 'sor-reports.work';
+let savedJson = '';
+let restored = false; // не затирать сохранённое, пока оно не прочитано
+const idb = <T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest): Promise<T | undefined> => new Promise((res) => {
+  try {
+    const o = indexedDB.open('sor-reports', 1);
+    o.onupgradeneeded = () => o.result.createObjectStore('kv');
+    o.onsuccess = () => { const r = fn(o.result.transaction('kv', mode).objectStore('kv')); r.onsuccess = () => res(r.result as T); r.onerror = () => res(undefined); };
+    o.onerror = () => res(undefined);
+  } catch { res(undefined); }
+});
+function workJson(): string {
+  return JSON.stringify({ v: 1, active: state.active, all: state.all.map((cs) => ({ cls: cs.cls, presetId: cs.presetId })) });
+}
+function saveWork(): void {
+  if (!restored) return;
+  const j = workJson();
+  if (j === savedJson) return;
+  savedJson = j;
+  try { localStorage.setItem(LSW, j); } catch { try { localStorage.removeItem(LSW); } catch { /* ignore */ } void idb('readwrite', (s) => s.put(j, LSW)); } // большое — в IndexedDB
+  renderAutosave(true);
+}
+async function restoreWork(): Promise<void> {
+  let j: string | null | undefined = null;
+  try { j = localStorage.getItem(LSW); } catch { /* ignore */ }
+  if (!j) j = await idb<string>('readonly', (s) => s.get(LSW));
+  if (!j) return;
+  try {
+    const w = JSON.parse(j) as { active: number; all: { cls: JournalClass; presetId: string }[] };
+    state.all = w.all.map((x) => ({ cls: x.cls, presetId: S().presets.some((p) => p.id === x.presetId) ? x.presetId : '', report: null }));
+    applyMake();
+    state.active = Math.max(0, Math.min(state.classes.length - 1, w.active ?? 0));
+    savedJson = j;
+    rebuild();
+  } catch { /* испорченная запись — начинаем с чистого листа */ }
+}
+let savedAt = 0;
+function renderAutosave(fresh = false): void {
+  if (fresh) savedAt = Date.now();
+  const el = $('autosave');
+  if (!state.all.length) { el.innerHTML = '<span>💾 Работа сохраняется автоматически: после обновления страницы всё останется на месте.</span>'; return; }
+  const t = savedAt ? new Date(savedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+  el.innerHTML = `<span>💾 Сохранено${t ? ' в ' + t : ''} — классы и все правки останутся после обновления страницы.</span><button class="btn small ghost" type="button" id="clear-work">Очистить всё</button>`;
+}
+setInterval(saveWork, 1500);
+addEventListener('pagehide', saveWork);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveWork(); });
+$('autosave').addEventListener('click', (e) => {
+  if (!(e.target as HTMLElement).closest('#clear-work')) return;
+  if (!confirm('Убрать все загруженные классы и правки? Разбаловки и настройки останутся.')) return;
+  state.all = []; state.classes = []; state.active = 0; saveWork(); render();
+});
 
 bindSettings();
 bindPhoto();
 bindEvents();
 render();
+void restoreWork().finally(() => { restored = true; if (state.all.length) { render(); prepareVoiceNames(); } renderAutosave(); });
 
 /* ---------- приложение: установка (PWA) и офлайн-работа ---------- */
 const inApp = /Electron/i.test(navigator.userAgent);

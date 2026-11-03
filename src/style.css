@@ -378,6 +378,7 @@ body[data-mode="paper"] #voice-btn { background: var(--accent); color: #fff; bor
 .kind.k-sor { background: #0b6bcb; }
 .kind.k-soch { background: #8e44ad; }
 .tab small { opacity: .75; font-size: 11px; }
+.autosave { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; color: var(--muted); margin: 6px 0; }
 .voice-base { font-size: 12px; color: #1a6b2f; background: #e6f6ea; border: 1px solid #9fd8ac; border-radius: 10px; padding: 2px 8px; align-self: center; }
 .voice-base.busy { color: #8a6100; background: #fff7e0; border-color: #f0d28a; }
 .tab small.k-sor, .tab small.k-soch { opacity: 1; color: #fff; padding: 0 5px; border-radius: 6px; }
