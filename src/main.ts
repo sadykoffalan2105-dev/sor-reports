@@ -741,7 +741,7 @@ function renderPreview(): void {
 
 /** Бумажный режим: продиктованная сумма критериев не совпала с общим баллом из журнала. */
 const rowDiff = (row: ReportRow) => !row.fromJournal && !row.pending && !row.incomplete && row.journalTotal != null && row.total !== row.journalTotal;
-const totalTip = (row: ReportRow) => row.journalTotal == null ? '' : row.fromJournal ? 'Общий балл из журнала' : rowDiff(row) ? `В журнале ${row.journalTotal} — сумма критериев другая` : `Совпадает с журналом (${row.journalTotal})`;
+const totalTip = (row: ReportRow) => row.journalTotal == null ? '' : row.fromJournal ? 'Общий балл из журнала' : row.rounded != null ? `Сумма критериев ${String(row.rounded).replace('.', ',')} — округлено как в журнале: ${row.journalTotal}` : rowDiff(row) ? `В журнале ${row.journalTotal} — сумма критериев другая` : `Совпадает с журналом (${row.journalTotal})`;
 
 /** Правка балла в ячейке: пересчитать строку и итоги без перерисовки всей таблицы. */
 function onScoreEdit(input: HTMLInputElement): void {

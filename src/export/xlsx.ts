@@ -171,7 +171,8 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
       row.scores.forEach((v, ci) => { const kc = L.kOf[ci]; const pc0 = L.phys[ci] + (kc > 1 ? bandIndex(v, r.columns[ci].max, kc) : 0); ws.getCell(rn, pc0).value = v; });
       if (L.helper) r.columns.forEach((_, ci) => { ws.getCell(rn, L.helper + ci).value = { formula: `SUM(${A(L.phys[ci])}${rn}:${A(L.phys[ci] + L.kOf[ci] - 1)}${rn})`, result: row.scores[ci] }; });
       const tot = ws.getCell(rn, L.total);
-      tot.value = { formula: `SUM(${A(L.scoreStart)}${rn}:${A(L.scoreEnd)}${rn})`, result: row.total };
+      tot.value = row.rounded != null ? row.total // округлено как в журнале (37,5 → 38)
+        : { formula: `SUM(${A(L.scoreStart)}${rn}:${A(L.scoreEnd)}${rn})`, result: row.total };
       const pc = ws.getCell(rn, L.percent);
       pc.value = { formula: `${A(L.total)}${rn}/${r.max}`, result: row.percent };
       pc.numFmt = '0%';

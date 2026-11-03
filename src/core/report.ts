@@ -133,7 +133,11 @@ export function unitOf(xs: number[]): number {
 }
 
 export function recalcRow(row: ReportRow, max: number, th: Settings['thresholds']): void {
-  row.total = r2(row.scores.reduce((x, y) => x + y, 0));
+  const sum = r2(row.scores.reduce((x, y) => x + y, 0));
+  // журнал хранит округлённый балл (37,5 → 38 или 37): расхождение меньше 1 — не ошибка, общий балл как в журнале
+  const j = row.journalTotal;
+  row.rounded = j != null && !row.fromJournal && !row.incomplete && sum !== j && Math.abs(sum - j) < 1 ? sum : undefined;
+  row.total = row.rounded != null ? j! : sum;
   row.percent = max ? row.total / max : 0;
   row.grade = gradeFor(row.percent, th);
 }
