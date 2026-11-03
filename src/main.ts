@@ -334,6 +334,7 @@ function renderClasses(): void {
         <label>Разбаловка <select data-act="preset">${presetOptions(cs.presetId, true)}</select></label>
         <label>Дата проведения <span class="row"><input type="date" data-act="dateHeld" value="${toIso(c.dateHeld)}" /><button class="btn small ghost" type="button" data-act="journal-date" title="взять дату СОР из журнала">из журнала</button></span></label>
         <label>Внесено в emaktab <input type="date" data-act="dateEntered" value="${toIso(c.dateEntered)}" /></label>
+        <label class="chk" title="Колонки «Причина отсутствия» и «Дата сдачи» — только у этого класса"><input type="checkbox" data-act="abscols" ${(c.absentColumns ?? S().absentColumns) ? 'checked' : ''} /> форма 1/2 (отсутствующие)</label>
       </div>${warn}</div>`;
   }).join('');
 }
@@ -1158,6 +1159,7 @@ function bindEvents(): void {
     if (t.dataset.act === 'preset') { cs.presetId = t.value; const g = cs.cls.className.match(/^\d+/)?.[0]; if (g && t.value) state.editGrade = g; }
     if (t.dataset.act === 'dateHeld') cs.cls.dateHeld = fromIso(t.value) || undefined;
     if (t.dataset.act === 'dateEntered') cs.cls.dateEntered = fromIso(t.value) || undefined;
+    if (t.dataset.act === 'abscols') cs.cls.absentColumns = t.checked;
     rebuild(i); state.active = i;
     if (t.dataset.act === 'dateHeld' || t.dataset.act === 'dateEntered') { renderTabs(); renderPreview(); return; } // не перерисовывать карточку — не терять фокус
     render();

@@ -38,7 +38,8 @@ export interface JournalClass {
   students: Student[];
   assessments: AssessmentColumn[];
   selectedAssessment?: string; // id выбранной колонки
-  reportKind?: Kind;           // запись класса для отчёта СОР или СОЧ (журнал с обеими колонками — две записи)
+  reportKind?: Kind;
+  absentColumns?: boolean;     // форма 1/2 у этого класса (undefined — как в общих настройках)           // запись класса для отчёта СОР или СОЧ (журнал с обеими колонками — две записи)
   dateHeld?: string;    // дата проведения (дд.мм.гггг), введена вручную
   dateEntered?: string; // дата внесения в emaktab
   structure?: Structure; // разбаловка из загруженного готового отчёта

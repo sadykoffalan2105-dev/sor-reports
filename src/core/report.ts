@@ -122,7 +122,7 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     participants: 0, scored: 0, absent: absentNames.length + rows.filter((x) => !x.absent && x.reason).length, absentNames,
     avg: [], avgTotal: 0, count5: 0, count4: 0, count3: 0, count2: 0, efficiency: 0,
     teacherShort: s.teacherShort, thresholds: s.thresholds,
-    absentColumns: s.absentColumns, showDates: s.showDates,
+    absentColumns: cls.absentColumns ?? s.absentColumns, showDates: s.showDates,
   };
   recalcSummary(report);
   return report;
