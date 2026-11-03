@@ -34,13 +34,13 @@ export function flattenColumns(s: Structure): ScoreColumn[] {
   const cols: ScoreColumn[] = [];
   s.tasks.forEach((t, ti) => {
     if (!t.parts.length) {
-      cols.push({ key: `t${ti}`, taskIndex: ti, partIndex: -1, path: [ti], header: '', max: t.max, target: t.target, bands: effBands(t.bands, s) });
+      cols.push({ key: `t${ti}`, taskIndex: ti, partIndex: -1, path: [ti], header: '', max: t.max, target: t.target, step: t.step, bands: effBands(t.bands, s) });
       return;
     }
     const walk = (parts: Part[], path: number[]) => parts.forEach((p, pi) => {
       const np = [...path, pi];
       if (p.parts?.length) walk(p.parts, np);
-      else cols.push({ key: 't' + np.join('_'), taskIndex: ti, partIndex: np[1], path: np, header: partHeader(p, s, np), max: p.max, target: p.target, fixed: p.fixed, bands: effBands(p.bands, s) });
+      else cols.push({ key: 't' + np.join('_'), taskIndex: ti, partIndex: np[1], path: np, header: partHeader(p, s, np), max: p.max, target: p.target, fixed: p.fixed, step: p.step, bands: effBands(p.bands, s) });
     });
     walk(t.parts, [ti]);
   });
@@ -52,7 +52,7 @@ export function flattenColumns(s: Structure): ScoreColumn[] {
 export function pointsLabel(n: number): string {
   const m = Math.abs(n) % 100, d = m % 10;
   const w = m > 10 && m < 20 ? 'баллов' : d === 1 ? 'балл' : d >= 2 && d <= 4 ? 'балла' : 'баллов';
-  return `${n} ${w}`;
+  return `${String(n).replace('.', ',')} ${Number.isInteger(n) ? w : 'балла'}`;
 }
 
 /** Номер узла в шапке: «2.1.3». */
@@ -187,22 +187,22 @@ export function structureFromText(text: string, prev?: Structure): Structure | n
   s.bands = prev.bands; s.headerStyle = prev.headerStyle; s.partNumbering = prev.partNumbering;
   const copyParts = (dst: Part[] | undefined, src: Part[] | undefined) => {
     if (!dst || !src) return;
-    dst.forEach((d, j) => { const o = src[j]; if (!o) return; d.label = o.label ?? ''; d.target = o.target; d.bands = o.bands; d.fixed = o.fixed; copyParts(d.parts, o.parts); });
+    dst.forEach((d, j) => { const o = src[j]; if (!o) return; d.label = o.label ?? ''; d.target = o.target; d.bands = o.bands; d.fixed = o.fixed; d.step = o.step; copyParts(d.parts, o.parts); });
   };
   s.tasks.forEach((t, i) => {
     const p = prev.tasks[i];
     if (!p) return;
-    t.title = p.title ?? ''; t.bands = p.bands; t.target = p.target;
+    t.title = p.title ?? ''; t.bands = p.bands; t.target = p.target; t.step = p.step;
     copyParts(t.parts, p.parts);
   });
   return s;
 }
 
 export function cloneStructure(s: Structure): Structure {
-  const cp = (p: Part): Part => ({ label: p.label ?? '', max: p.max, target: p.target, bands: p.bands, ...(p.fixed != null ? { fixed: p.fixed } : {}), ...(p.parts?.length ? { parts: p.parts.map(cp) } : {}) });
+  const cp = (p: Part): Part => ({ label: p.label ?? '', max: p.max, target: p.target, bands: p.bands, ...(p.fixed != null ? { fixed: p.fixed } : {}), ...(p.step ? { step: p.step } : {}), ...(p.parts?.length ? { parts: p.parts.map(cp) } : {}) });
   return {
     bands: s.bands, headerStyle: s.headerStyle, partNumbering: s.partNumbering,
-    tasks: s.tasks.map((t) => ({ title: t.title ?? '', max: t.max, target: t.target, bands: t.bands, parts: t.parts.map(cp) })),
+    tasks: s.tasks.map((t) => ({ title: t.title ?? '', max: t.max, target: t.target, bands: t.bands, ...(t.step ? { step: t.step } : {}), parts: t.parts.map(cp) })),
   };
 }
 
@@ -230,7 +230,14 @@ export const BUILTIN_PRESETS: { name: string; text: string }[] = [
 ];
 
 export function builtinPresets(): Preset[] {
-  return [...BUILTIN_PRESETS.map((p) => ({ id: newPresetId(), name: p.name, structure: parseStructure(p.text)! })), technologyPreset()];
+  return [...BUILTIN_PRESETS.map((p) => ({ id: newPresetId(), name: p.name, structure: parseStructure(p.text)! })), technologyPreset(), rusSochPreset()];
+}
+
+/** Русский язык — СОЧ из 10 тестов: знание 3 × 2,5; применение 6 × 4,5; размышление 1 × 5,5 (40 баллов). */
+export const RUS_SOCH_NAME = 'Русский язык — СОЧ 40 (10 тестов)';
+export function rusSochPreset(): Preset {
+  const t = (title: string, n: number, step: number): Task => ({ title, max: n * step, step, parts: [] });
+  return { id: newPresetId(), name: RUS_SOCH_NAME, structure: { tasks: [t('Знание', 3, 2.5), t('Применение', 6, 4.5), t('Размышление', 1, 5.5)], headerStyle: 'paren' } };
 }
 
 /** Технология — форма с уровнями: 1.1 (5, у всех 5), 2 зад (2.1 5, 2.2 10, 2.3 10, 2.4 5), 3 зад (5, у всех 5). */

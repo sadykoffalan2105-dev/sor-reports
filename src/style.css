@@ -382,6 +382,8 @@ body[data-mode="paper"] #voice-btn { background: var(--accent); color: #fff; bor
 .ui-dialog-card { background: #fff; color: #1d2733; border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.25); max-width: 520px; width: 100%; padding: 18px 20px; }
 .ui-dialog-text { font-size: 15px; line-height: 1.45; white-space: normal; overflow-wrap: anywhere; }
 .ui-dialog-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.delc .ok { border: 0; background: transparent; color: #1a7f37; cursor: pointer; font-weight: 700; padding: 0 4px; }
+.delc .ok:hover { background: #e6f6ea; border-radius: 4px; }
 .autosave { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; color: var(--muted); margin: 6px 0; }
 .voice-base { font-size: 12px; color: #1a6b2f; background: #e6f6ea; border: 1px solid #9fd8ac; border-radius: 10px; padding: 2px 8px; align-self: center; }
 .voice-base.busy { color: #8a6100; background: #fff7e0; border-color: #f0d28a; }

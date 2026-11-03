@@ -4,7 +4,7 @@ import { buildReport, recalcRow, recalcSummary, fullDate } from './core/report.t
 import { gradeFor } from './core/distribute.ts';
 import {
   parseStructure, structureFromText, structureToText, structureMax, flattenColumns, taskHeader, taskMax,
-  cloneStructure, normalizeStructure, newPresetId, builtinPresets, technologyPreset, TECH_NAME, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
+  cloneStructure, normalizeStructure, newPresetId, builtinPresets, technologyPreset, TECH_NAME, rusSochPreset, RUS_SOCH_NAME, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
 } from './core/structure.ts';
 import { buildHeader } from './core/header.ts';
 import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLadderGaps, type Ladder, type RuleStep } from './core/ladder.ts';
@@ -54,6 +54,7 @@ function loadSettings(): Settings {
       migrateLadders(s);
       if (!Array.isArray(s.presets) || !s.presets.length) { s.presets = d.presets; s.presetId = d.presetId; }
       if (!s.presets.some((p) => p.name === TECH_NAME)) s.presets.push(technologyPreset());
+      if (!s.presets.some((p) => p.name === RUS_SOCH_NAME)) s.presets.push(rusSochPreset());
       if (!s.presets.some((p) => p.id === s.presetId)) s.presetId = s.presets[0].id;
       s.structure = cloneStructure(s.presets.find((p) => p.id === s.presetId)!.structure);
       return s;
@@ -414,6 +415,7 @@ function renderPart(p: Part, path: number[]): string {
     <button class="x" type="button" data-act="del-part" title="Убрать критерий">✕</button>
     <input type="text" data-f="plabel" value="${h(p.label ?? '')}" placeholder="название" title="Название критерия в шапке" />
     <input type="number" data-f="ptarget" min="0" max="100" value="${p.target ?? ''}" placeholder="цель %" title="Целевой % для раскидки «по целям»" />
+    ${p.parts?.length ? '' : `<input type="number" step="any" data-f="pstep" min="0" value="${p.step ?? ''}" placeholder="за вопрос" title="Критерий из вопросов: баллов за один вопрос (например, 2,5) — баллы снимаются целыми вопросами. Пусто — как обычно" />`}
     ${p.parts?.length ? '' : `<input type="number" step="any" data-f="pfixed" min="0" max="${p.max}" value="${p.fixed ?? ''}" placeholder="у всех" title="Одинаковый балл у всех учеников (например, ${p.max}) — раскидываются только остальные критерии. Пусто — как обычно" />`}
     <select data-f="pbands" title="Уровни под этим критерием">${bandOpts(p.bands)}</select>
     <button class="mini tiny" type="button" data-act="add-sub" title="Разделить на подкритерии (критерий в критерии)">＋ под</button>
@@ -430,7 +432,7 @@ function renderStructureEditor(): void {
       <td class="ttl"><input type="text" data-f="title" value="${h(t.title ?? '')}" placeholder="название в шапке (необязательно)" /></td>
       <td class="parts-cell"><div class="parts">${parts}<button class="mini" type="button" data-act="add-part" title="Добавить критерий">＋ критерий</button></div></td>
       <td class="n">${t.parts.length ? `<b data-k="tsum">${taskMax(t)}</b>` : `<input type="number" step="any" data-f="tmax" min="0" value="${t.max}" title="Баллы задания" />`}</td>
-      <td class="n">${t.parts.length ? '' : `<input type="number" data-f="ttarget" min="0" max="100" value="${t.target ?? ''}" placeholder="100" title="Целевой %" />`}</td>
+      <td class="n">${t.parts.length ? '' : `<input type="number" data-f="ttarget" min="0" max="100" value="${t.target ?? ''}" placeholder="100" title="Целевой %" /><input type="number" step="any" data-f="tstep" min="0" value="${t.step ?? ''}" placeholder="за вопрос" title="Задание из вопросов: баллов за один вопрос (например, 2,5) — снимается целыми вопросами" />`}</td>
       <td class="n">${t.parts.length ? '' : `<select data-f="tbands" title="Уровни под этим заданием">${bandOpts(t.bands)}</select>`}</td>
       <td class="ops"><button class="mini" type="button" data-act="up" ${ti === 0 ? 'disabled' : ''} title="Выше">↑</button><button class="mini" type="button" data-act="down" ${ti === s.tasks.length - 1 ? 'disabled' : ''} title="Ниже">↓</button><button class="mini danger" type="button" data-act="del-task" ${s.tasks.length <= 1 ? 'disabled' : ''} title="Удалить задание">✕</button></td>
     </tr>`;
@@ -462,10 +464,11 @@ function onStructInput(t: HTMLInputElement): void {
   else if (f === 'tbands') task.bands = bandsV(t.value);
   else if (f === 'tmax') task.max = num(t.value);
   else if (f === 'ttarget') task.target = pctv(t.value);
-  else if (f === 'plabel' || f === 'pmax' || f === 'ptarget' || f === 'pbands' || f === 'pfixed') {
+  else if (f === 'tstep') task.step = t.value.trim() === '' ? undefined : num(t.value) || undefined;
+  else if (f === 'plabel' || f === 'pmax' || f === 'ptarget' || f === 'pbands' || f === 'pfixed' || f === 'pstep') {
     const path = pathOf(t); const part = path && (nodeAt(st, path) as Part | undefined);
     if (!part) return;
-    if (f === 'plabel') part.label = t.value; else if (f === 'pfixed') part.fixed = t.value.trim() === '' ? undefined : Math.max(0, Math.min(part.max, Math.round(Number(t.value)) || 0)); else if (f === 'ptarget') part.target = pctv(t.value); else if (f === 'pbands') part.bands = bandsV(t.value); else part.max = num(t.value);
+    if (f === 'plabel') part.label = t.value; else if (f === 'pstep') part.step = t.value.trim() === '' ? undefined : num(t.value) || undefined; else if (f === 'pfixed') part.fixed = t.value.trim() === '' ? undefined : Math.max(0, Math.min(part.max, Math.round(Number(t.value)) || 0)); else if (f === 'ptarget') part.target = pctv(t.value); else if (f === 'pbands') part.bands = bandsV(t.value); else part.max = num(t.value);
   } else return;
   setStructure(st);
   const cur = editingStructure();
@@ -689,7 +692,7 @@ function renderPreview(): void {
   const own = cs.presetId ? presetById(cs.presetId) : undefined;
   const pend = r.rows.filter((x) => x.pending), inc = r.rows.filter((x) => x.incomplete);
   const fromJ = r.rows.filter((x) => x.fromJournal), diff = r.rows.filter(rowDiff);
-  const paperInfo = S().workMode === 'paper' ? `<div class="paper-info ${pend.length || inc.length ? 'warn' : 'ok'}">${pend.length ? `Не введено: <b>${pend.length}</b> из ${r.rows.length} — диктуйте «🎤 Голосовой ввод» или вводите в таблице (Enter — следующая клетка). Не введённые попадут в отчёт отсутствующими.` : 'Общий балл у всех есть.'}${fromJ.length ? ` Общий балл из журнала: <b>${fromJ.length}</b> — критерии пока разложены по раскладке, продиктуйте их с бумаги.` : ''}${inc.length ? ` Не все критерии: ${inc.map((x) => h(x.name.split(' ')[0])).join(', ')}.` : ''}${diff.length ? ` <b class="diff-t">Сумма критериев ≠ журналу:</b> ${diff.map((x) => `${h(x.name.split(' ')[0])} (${x.total} / ${x.journalTotal})`).join(', ')}.` : ''}</div>` : '';
+  const paperInfo = S().workMode === 'paper' ? `<div class="paper-info ${pend.length || inc.length ? 'warn' : 'ok'}">${pend.length ? `Не введено: <b>${pend.length}</b> из ${r.rows.length} — диктуйте «🎤 Голосовой ввод» или вводите в таблице (Enter — следующая клетка). Не введённые попадут в отчёт отсутствующими.` : 'Общий балл у всех есть.'}${fromJ.length ? ` Общий балл из журнала: <b>${fromJ.length}</b> — критерии пока разложены по раскладке, продиктуйте их с бумаги или подтвердите (✓). <button class="btn small" type="button" data-act="confirm-all" title="Принять раскладку у всех голубых строк">✓ Подтвердить все ${fromJ.length}</button>` : ''}${inc.length ? ` Не все критерии: ${inc.map((x) => h(x.name.split(' ')[0])).join(', ')}.` : ''}${diff.length ? ` <b class="diff-t">Сумма критериев ≠ журналу:</b> ${diff.map((x) => `${h(x.name.split(' ')[0])} (${x.total} / ${x.journalTotal})`).join(', ')}.` : ''}</div>` : '';
   const info = paperInfo + `<div class="info">Разбаловка класса: <b>${h(own ? own.name : currentPreset().name)}</b> · ${h(structureToText(structureFor(cs)))}${own ? ' (своя для этого класса — меняется в списке классов)' : ' (общая)'}</div>`;
 
   const Ly = r.layout;
@@ -704,7 +707,7 @@ function renderPreview(): void {
   const reasonCells = (row: ReportRow) => r.absentColumns
     ? `<td><select data-act="reason" data-s="${row.studentIndex}" title="Причина отсутствия: Б — болел, П — пропуск, Н — не был, У — уважительная">${REASONS.map((x) => `<option value="${x}" ${x === (row.reason ?? '') ? 'selected' : ''}>${x || '—'}</option>`).join('')}</select></td><td><input type="date" data-act="retake" data-s="${row.studentIndex}" value="${toIso(row.retake)}" title="Дата сдачи" /></td>`
     : '';
-  const del = (row: ReportRow) => `<td class="delc"><button class="del" type="button" data-act="del-student" data-s="${row.studentIndex}" title="Убрать ученика из отчёта">✕</button></td>`;
+  const del = (row: ReportRow) => `<td class="delc">${row.fromJournal ? `<button class="ok" type="button" data-act="confirm-row" data-s="${row.studentIndex}" title="Подтвердить эту разбаловку — строка станет введённой (✎)">✓</button>` : ''}<button class="del" type="button" data-act="del-student" data-s="${row.studentIndex}" title="Убрать ученика из отчёта">✕</button></td>`;
   const body = r.rows.map((row, ri) => {
     if (row.absent && !row.pending) {
       const who = r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал';
@@ -1229,6 +1232,16 @@ function bindEvents(): void {
       }
     }
     else return;
+    rebuild(state.active); renderPreview();
+  });
+  $('preview').addEventListener('click', (e) => { // подтвердить разбаловку строки / всех
+    const b = (e.target as HTMLElement).closest('[data-act="confirm-row"], [data-act="confirm-all"]') as HTMLElement | null; if (!b) return;
+    const cs = state.classes[state.active]; const r = cs?.report; if (!cs || !r) return;
+    const all = b.dataset.act === 'confirm-all';
+    for (const row of r.rows) {
+      if (!row.fromJournal || (!all && row.studentIndex !== Number(b.dataset.s))) continue;
+      const st = cs.cls.students[row.studentIndex]; if (st) { st.manualScores = row.scores.slice(); st.forceAbsent = false; }
+    }
     rebuild(state.active); renderPreview();
   });
   $('preview').addEventListener('click', async (e) => { // убрать ученика

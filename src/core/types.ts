@@ -48,9 +48,9 @@ export interface JournalClass {
 
 /** Подзадание (критерий) с максимумом баллов. */
 /** Критерий; parts — подкритерии (баллы группы = их сумма). target — целевой %; bands — уровни (undefined = общие, 0 = нет). */
-export interface Part { label: string; max: number; target?: number; bands?: number; parts?: Part[]; fixed?: number } // fixed — одинаковый балл у всех
+export interface Part { label: string; max: number; target?: number; bands?: number; parts?: Part[]; fixed?: number; step?: number } // fixed — одинаковый балл у всех; step — баллов за один вопрос (снимается целыми вопросами)
 /** Задание: либо одна колонка (parts пустой), либо несколько подколонок. */
-export interface Task { title: string; parts: Part[]; max: number; target?: number; bands?: number }
+export interface Task { title: string; parts: Part[]; max: number; target?: number; bands?: number; step?: number }
 export type HeaderStyle = 'full' | 'short' | 'paren';
 /** bands — уровни по умолчанию (0/2/3/4); headerStyle — «1 задание 5 баллов» или «1 зад · 5 балл»; partNumbering — «2.1» в шапке критерия. */
 export interface Structure { tasks: Task[]; bands?: number; headerStyle?: HeaderStyle; partNumbering?: boolean }
@@ -110,6 +110,7 @@ export interface ScoreColumn {
   max: number;
   target?: number;       // целевой % (стратегия «по целям»)
   fixed?: number;        // у всех учеников один и тот же балл (остальное раскидывается по другим критериям)
+  step?: number;         // критерий из вопросов: баллов за вопрос (2,5) — снимается целыми вопросами
   bands: number;         // уровней под колонкой (1 — нет)
 }
 
