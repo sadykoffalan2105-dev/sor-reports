@@ -203,7 +203,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
     }
   });
   const lastRow = first + r.rows.length - 1;
-  const N = r.participants || 1;
+  const N = r.scored ?? r.participants ?? 1;
 
   // итоги — только включённые в макете строки
   let next = lastRow + 1;

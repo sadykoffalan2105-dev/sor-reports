@@ -162,6 +162,7 @@ export interface ClassReport {
   count5: number;
   count4: number;
   count3: number;
+  scored?: number;       // строк с баллами (участвовали + сдавшие позже) — делитель средних
   count2: number;
   efficiency: number;    // (5+4)/участники
   teacherShort: string;

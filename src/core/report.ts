@@ -119,7 +119,7 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     date: cls.dateHeld || (s.showDates ? fullDate(a?.date, cls.year || s.year) : undefined),
     dateEntered: cls.dateEntered,
     max, columns, tasks: structure.tasks, structure: cloneStructure(structure), rows,
-    participants: 0, absent: absentNames.length + rows.filter((x) => !x.absent && x.reason).length, absentNames,
+    participants: 0, scored: 0, absent: absentNames.length + rows.filter((x) => !x.absent && x.reason).length, absentNames,
     avg: [], avgTotal: 0, count5: 0, count4: 0, count3: 0, count2: 0, efficiency: 0,
     teacherShort: s.teacherShort, thresholds: s.thresholds,
     absentColumns: s.absentColumns, showDates: s.showDates,
@@ -183,7 +183,8 @@ export function recalcRow(row: ReportRow, max: number, th: Settings['thresholds'
 
 export function recalcSummary(r: ClassReport): void {
   const part = r.rows.filter((x) => !x.absent);
-  r.participants = part.length;
+  r.scored = part.length; // строк с баллами (для средних)
+  r.participants = part.filter((x) => !x.reason).length; // сдавшие позже (форма 1/2) — в «Отсутствовали», не в «Участвовали»
   const n = part.length || 1;
   r.avg = r.columns.map((_, ci) => part.reduce((s, row) => s + row.scores[ci], 0) / n);
   r.avgTotal = part.reduce((s, row) => s + row.total, 0) / n;
