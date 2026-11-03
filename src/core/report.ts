@@ -116,7 +116,7 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     dateEntered: cls.dateEntered,
     max, columns, tasks: structure.tasks, structure: cloneStructure(structure), rows,
     participants: 0, absent: absentNames.length + rows.filter((x) => !x.absent && x.reason).length, absentNames,
-    avg: [], avgTotal: 0, count5: 0, count4: 0, efficiency: 0,
+    avg: [], avgTotal: 0, count5: 0, count4: 0, count3: 0, count2: 0, efficiency: 0,
     teacherShort: s.teacherShort, thresholds: s.thresholds,
     absentColumns: s.absentColumns, showDates: s.showDates,
   };
@@ -146,5 +146,7 @@ export function recalcSummary(r: ClassReport): void {
   r.avgTotal = part.reduce((s, row) => s + row.total, 0) / n;
   r.count5 = part.filter((x) => x.grade === 5).length;
   r.count4 = part.filter((x) => x.grade === 4).length;
+  r.count3 = part.filter((x) => x.grade === 3).length;
+  r.count2 = part.filter((x) => x.grade === 2).length;
   r.efficiency = part.length ? (r.count5 + r.count4) / part.length : 0;
 }

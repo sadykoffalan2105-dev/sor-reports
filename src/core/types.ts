@@ -158,6 +158,8 @@ export interface ClassReport {
   avgTotal: number;
   count5: number;
   count4: number;
+  count3: number;
+  count2: number;
   efficiency: number;    // (5+4)/участники
   teacherShort: string;
   thresholds: Thresholds;

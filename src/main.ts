@@ -624,8 +624,11 @@ function renderFootInto(el: HTMLElement, r: ClassReport): void {
   const rows: string[] = [];
   if (Ly.showAvg) rows.push(`<tr><td></td><td class="lbl">Сред.балл:</td>${lead}${r.avg.map((a, i) => `<td colspan="${ks[i]}">${fix(a)}</td>`).join('')}<td>${fix(r.avgTotal)}</td><td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td></tr>`);
   if (Ly.showPct) rows.push(`<tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td colspan="${ks[i]}">${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>`);
-  if (Ly.showCounts) rows.push(`<tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td><td colspan="${physTotal + 2}"></td></tr>
-    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td><td colspan="${physTotal + 2}"></td></tr>`);
+  // «3» и «2» — в тех же строках, правее «5» и «4»
+  const rest = Math.max(0, physTotal + 2 - 3);
+  const side = (k: number, v: number) => `<td class="lbl" colspan="2">Количество - “${k}”</td><td>${v}</td>${rest ? `<td colspan="${rest}"></td>` : ''}`;
+  if (Ly.showCounts) rows.push(`<tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td>${side(3, r.count3)}</tr>
+    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td>${side(2, r.count2)}</tr>`);
   if (Ly.showEff) rows.push(`<tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${physTotal + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`);
   el.innerHTML = rows.join('');
 }
@@ -1305,7 +1308,11 @@ let savedAt = 0;
 function renderAutosave(fresh = false): void {
   if (fresh) savedAt = Date.now();
   const el = $('autosave');
-  if (!state.all.length) { el.innerHTML = '<span>💾 Работа сохраняется автоматически: после обновления страницы всё останется на месте.</span>'; return; }
+  if (!state.all.length) {
+    let prev = false; try { prev = !!localStorage.getItem(LSW + '.prev'); } catch { /* ignore */ }
+    el.innerHTML = '<span>💾 Работа сохраняется автоматически: после обновления страницы всё останется на месте.</span>' + (prev ? '<button class="btn small ghost" type="button" id="undo-clear">↶ Вернуть очищенное</button>' : '');
+    return;
+  }
   const t = savedAt ? new Date(savedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
   el.innerHTML = `<span>💾 Сохранено${t ? ' в ' + t : ''} — классы и все правки останутся после обновления страницы.</span><button class="btn small ghost" type="button" id="clear-work">Очистить всё</button>`;
 }
@@ -1313,8 +1320,13 @@ setInterval(saveWork, 1500);
 addEventListener('pagehide', saveWork);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveWork(); });
 $('autosave').addEventListener('click', async (e) => {
+  if ((e.target as HTMLElement).closest('#undo-clear')) { // вернуть то, что очистили
+    const j = localStorage.getItem(LSW + '.prev'); if (!j) return;
+    localStorage.setItem(LSW, j); localStorage.removeItem(LSW + '.prev'); savedJson = ''; restored = false; await restoreWork(); restored = true; render(); prepareVoiceNames(); return;
+  }
   if (!(e.target as HTMLElement).closest('#clear-work')) return;
   if (!(await ask('Убрать все загруженные классы и правки? Разбаловки и настройки останутся.', 'Очистить'))) return;
+  try { localStorage.setItem(LSW + '.prev', workJson()); } catch { /* ignore */ } // «Очистить» можно отменить
   state.all = []; state.classes = []; state.active = 0; saveWork(); render();
 });
 
