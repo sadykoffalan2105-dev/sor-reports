@@ -644,10 +644,11 @@ function renderFootInto(el: HTMLElement, r: ClassReport): void {
   if (Ly.showAvg) rows.push(`<tr><td></td><td class="lbl">Сред.балл:</td>${lead}${r.avg.map((a, i) => `<td colspan="${ks[i]}">${fix(a)}</td>`).join('')}<td>${fix(r.avgTotal)}</td><td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td></tr>`);
   if (Ly.showPct) rows.push(`<tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td colspan="${ks[i]}">${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>`);
   // «3» и «2» — в тех же строках, правее «5» и «4»
-  const rest = Math.max(0, physTotal + 2 - 3);
-  const side = (k: number, v: number) => Ly.showCounts32 === false ? `<td colspan="${physTotal + 2}"></td>` : `<td class="lbl" colspan="2">Количество - “${k}”</td><td>${v}</td>${rest ? `<td colspan="${rest}"></td>` : ''}`;
-  if (Ly.showCounts) rows.push(`<tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td>${side(3, r.count3)}</tr>
-    <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td>${side(2, r.count2)}</tr>`);
+  const nLead = r.absentColumns ? 2 : 0; // число «5»/«4» — сразу за подписью, даже с колонками причины и даты
+  const rest = Math.max(0, physTotal + 2 + nLead - 3);
+  const side = (k: number, v: number) => Ly.showCounts32 === false ? `<td colspan="${physTotal + 2 + nLead}"></td>` : `<td class="lbl" colspan="2">Количество - “${k}”</td><td>${v}</td>${rest ? `<td colspan="${rest}"></td>` : ''}`;
+  if (Ly.showCounts) rows.push(`<tr><td></td><td class="lbl">Количество - “5”</td><td>${r.count5}</td>${side(3, r.count3)}</tr>
+    <tr><td></td><td class="lbl">Количество - “4”</td><td>${r.count4}</td>${side(2, r.count2)}</tr>`);
   if (Ly.showEff) rows.push(`<tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${physTotal + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`);
   el.innerHTML = rows.join('');
 }

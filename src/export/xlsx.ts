@@ -233,16 +233,17 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
     }
   }
   if (c5Row) {
+    const c0 = L.reason || L.scoreStart; // число — в соседней с подписью клетке (и в форме 1/2)
     ws.getCell(c5Row, 2).value = 'Количество - “5”';
-    ws.getCell(c5Row, L.scoreStart).value = { formula: `COUNTIF(${gradeRange},5)`, result: r.count5 };
+    ws.getCell(c5Row, c0).value = { formula: `COUNTIF(${gradeRange},5)`, result: r.count5 };
     ws.getCell(c4Row, 2).value = 'Количество - “4”';
-    ws.getCell(c4Row, L.scoreStart).value = { formula: `COUNTIF(${gradeRange},4)`, result: r.count4 };
+    ws.getCell(c4Row, c0).value = { formula: `COUNTIF(${gradeRange},4)`, result: r.count4 };
     // «3» и «2» — в тех же строках, правее
     if (Ly.showCounts32 !== false) for (const [row, g, v] of [[c5Row, 3, r.count3], [c4Row, 2, r.count2]] as const) {
-      ws.mergeCells(row, L.scoreStart + 1, row, L.scoreStart + 2);
-      const lb = ws.getCell(row, L.scoreStart + 1);
+      ws.mergeCells(row, c0 + 1, row, c0 + 2);
+      const lb = ws.getCell(row, c0 + 1);
       lb.value = `Количество - “${g}”`; lb.font = { ...(ws.getCell(row, 2).font ?? {}), bold: true }; lb.alignment = { horizontal: 'left', vertical: 'middle' };
-      ws.getCell(row, L.scoreStart + 3).value = { formula: `COUNTIF(${gradeRange},${g})`, result: v };
+      ws.getCell(row, c0 + 3).value = { formula: `COUNTIF(${gradeRange},${g})`, result: v };
     }
   }
   if (effRow) {
