@@ -65,7 +65,7 @@ export const pathNum = (path: number[]): string => path.map((x) => x + 1).join('
 /** Заголовок задания: «2 задание 40 баллов» (или «2 зад\n40 балл»), при наличии названия — ещё строка. */
 export function taskHeader(t: Task, i: number, style: HeaderStyle = 'full'): string {
   if (style === 'paren') return hasPts(t.title) ? t.title!.trim() : `${t.title?.trim() || `${i + 1} задание`} (${pointsLabel(taskMax(t))})`;
-  if (hasPts(t.title) || /^\d+(\.\d+)*(\s*зад\S*)?$/i.test(t.title?.trim() ?? '')) return t.title!.trim();
+  if (hasPts(t.title) || /^\d+(\.\d+)*(\s*зад\S*)?$/i.test(t.title?.trim() ?? '')) return t.title!.trim().replace(/^(\d+\s*зад\S*)\s+(\d+)\s+(балл\S*)$/i, '$1\n$2\n$3');
   const base = style === 'short' ? `${i + 1} зад\n${taskMax(t)} балл` : `${i + 1} задание ${pointsLabel(taskMax(t))}`;
   return t.title?.trim() ? `${base}\n${t.title.trim()}` : base;
 }
@@ -250,7 +250,7 @@ export function technologyPreset(): Preset {
   const one = (title: string): Task => ({ title, max: 5, parts: [{ label: '', max: 5, fixed: 5 }] });
   return {
     id: newPresetId(), name: TECH_NAME,
-    structure: { tasks: [one('1.1'), { title: '', max: 30, parts: [5, 10, 10, 5].map((m) => ({ label: '', max: m })) }, one('3 зад')], bands: 3, headerStyle: 'short', partNumbering: true },
+    structure: { tasks: [one('1.1'), { title: '2 зад 40 балл', max: 30, parts: [5, 10, 10, 5].map((m) => ({ label: '', max: m })) }, one('3 зад')], bands: 3, headerStyle: 'short', partNumbering: true },
   };
 }
 

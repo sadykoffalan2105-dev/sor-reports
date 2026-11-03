@@ -53,7 +53,15 @@ function loadSettings(): Settings {
       s.ladderRows = j.ladderRows ?? {}; s.ladderRules = j.ladderRules ?? {};
       migrateLadders(s);
       if (!Array.isArray(s.presets) || !s.presets.length) { s.presets = d.presets; s.presetId = d.presetId; }
-      if (!s.presets.some((p) => p.name === TECH_NAME)) s.presets.push(technologyPreset());
+      { // шаблон «Технология»: добавить; один раз починить, если его разбаловку случайно переписали (5; 5; 10; 15; 15)
+        const canon = technologyPreset(), tech = s.presets.find((p) => p.name === TECH_NAME);
+        if (!tech) s.presets.push(canon);
+        else if ((s.techV ?? 0) < 2 && structureToText(tech.structure) !== structureToText(canon.structure)) {
+          s.presets.push({ id: newPresetId(), name: `${TECH_NAME} (изменённая)`, structure: tech.structure });
+          tech.structure = canon.structure; // id прежний — классы с этим шаблоном сразу получают правильную форму
+        } else if ((s.techV ?? 0) < 2) tech.structure = canon.structure;
+        s.techV = 2;
+      }
       if (!s.presets.some((p) => p.name === RUS_SOCH_NAME)) s.presets.push(rusSochPreset());
       if (!s.presets.some((p) => p.id === s.presetId)) s.presetId = s.presets[0].id;
       s.structure = cloneStructure(s.presets.find((p) => p.id === s.presetId)!.structure);
@@ -256,7 +264,8 @@ function addOne(cls: JournalClass): void {
   if (cls.reportKind === 'СОЧ') { // для СОЧ — разбаловка с тем же максимумом («СОЧ 40»), лучше своей параллели
     const am = cls.assessments.find((a) => a.id === cls.selectedAssessment)?.max ?? 40;
     const fit = s.presets.filter((p) => structureMax(p.structure) === am);
-    let p = fit.find((x) => grade && new RegExp(`^${grade}\\s*класс`, 'i').test(x.name) && /СОЧ/i.test(x.name)) ?? fit.find((x) => /СОЧ/i.test(x.name)) ?? fit[0];
+    let p = (/технолог/i.test(cls.subject ?? '') ? fit.find((x) => x.name === TECH_NAME) : undefined)
+      ?? fit.find((x) => grade && new RegExp(`^${grade}\\s*класс`, 'i').test(x.name) && /СОЧ/i.test(x.name)) ?? fit.find((x) => /СОЧ/i.test(x.name)) ?? fit[0];
     if (!p) { // разбаловки на этот максимум нет — заготовка, её правят во вкладке «N-е · СОЧ»
       const parts = Array.from({ length: Math.ceil(am / 10) }, (_, j) => Math.min(10, am - j * 10));
       p = { id: newPresetId(), name: `${grade ? grade + ' класс — ' : ''}СОЧ ${am}`, structure: parseStructure(parts.join('; '))! };
@@ -1137,7 +1146,7 @@ function bindEvents(): void {
     const i = Number(t.closest('.cls')?.getAttribute('data-i'));
     const cs = state.classes[i]; if (!cs) return;
     if (t.dataset.act === 'assess') cs.cls.selectedAssessment = t.value;
-    if (t.dataset.act === 'preset') cs.presetId = t.value;
+    if (t.dataset.act === 'preset') { cs.presetId = t.value; const g = cs.cls.className.match(/^\d+/)?.[0]; if (g && t.value) state.editGrade = g; }
     if (t.dataset.act === 'dateHeld') cs.cls.dateHeld = fromIso(t.value) || undefined;
     if (t.dataset.act === 'dateEntered') cs.cls.dateEntered = fromIso(t.value) || undefined;
     rebuild(i); state.active = i;
@@ -1148,6 +1157,7 @@ function bindEvents(): void {
     const t = e.target as HTMLSelectElement; if (t.dataset.act !== 'grade-preset') return;
     const el = t.closest('.grade') as HTMLElement;
     for (const cs of gradeClasses(el.dataset.g!, el.dataset.k as Kind)) cs.presetId = t.value;
+    state.editGrade = t.value ? el.dataset.g! : ''; // редактор показывает выбранный шаблон
     rebuild(); render();
   });
   $('grades').addEventListener('click', (e) => {
