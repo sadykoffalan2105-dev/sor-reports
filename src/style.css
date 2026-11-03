@@ -365,8 +365,9 @@ body[data-mode="paper"] #voice-btn { background: var(--accent); color: #fff; bor
 .rep tr.pending td input { border: 1px dashed #c9d1d9; background: #fff; }
 .rep tr.incomplete td { background: #fffbea; }
 .rep tr.journal td input { color: #8a94a0; font-style: italic; }
-.rep tr.journal td[data-k="total"] { color: #0b6bcb; font-weight: 600; }
-.rep tr.diff td[data-k="total"] { background: #ffe1e1; color: #b00020; font-weight: 700; }
+.rep td[data-k="total"] input, .rep td[data-k="grade"] input { font-weight: 600; color: inherit; }
+.rep tr.journal td[data-k="total"], .rep tr.journal td[data-k="total"] input { color: #0b6bcb; font-weight: 600; }
+.rep tr.diff td[data-k="total"], .rep tr.diff td[data-k="total"] input { background: #ffe1e1; color: #b00020; font-weight: 700; }
 .diff-t { color: #b00020; }
 .kbs { font-size: 12px; color: var(--muted); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
 .kb { padding: 1px 7px; border-radius: 10px; border: 1px solid #d0d7de; white-space: nowrap; }

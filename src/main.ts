@@ -1,6 +1,7 @@
 import './style.css';
 import { parseWorkbook, parseManualList, shortTeacherName } from './parse/journal.ts';
 import { buildReport, recalcRow, recalcSummary, fullDate } from './core/report.ts';
+import { gradeFor } from './core/distribute.ts';
 import {
   parseStructure, structureFromText, structureToText, structureMax, flattenColumns, taskHeader, taskMax,
   cloneStructure, normalizeStructure, newPresetId, builtinPresets, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
@@ -150,6 +151,7 @@ function download(bytes: Uint8Array, name: string): void {
 
 async function addFiles(files: FileList | File[]): Promise<void> {
   const errors: string[] = [];
+  const firstNew = state.classes.length;
   for (const f of Array.from(files)) {
     try {
       const found = parseWorkbook(await f.arrayBuffer(), f.name);
@@ -160,7 +162,7 @@ async function addFiles(files: FileList | File[]): Promise<void> {
     }
   }
   rebuild();
-  state.active = Math.max(0, state.classes.length - 1);
+  state.active = Math.max(0, Math.min(state.classes.length - 1, firstNew)); // первый класс из этих файлов (СОР раньше СОЧ)
   render();
   if (errors.length) alert(errors.join('\n'));
 }
@@ -197,7 +199,7 @@ function applyMake(): void {
 
 /** Журнал с колонками СОР и СОЧ → две записи класса: у каждой своя колонка, разбаловка и ручные баллы. */
 function addClass(cls: JournalClass): void {
-  const sor = has(cls, 'СОР'), soch = has(cls, 'СОЧ');
+  const sor = has(cls, 'СОР'), soch = cls.assessments.some((a) => a.kind === 'СОЧ' && a.scores.some((x) => x != null)); // пустой СОЧ — только бейдж «без баллов»
   if (!cls.structure && sor && soch) {
     const twin: JournalClass = { ...cls, students: cls.students.map((st) => ({ n: st.n, name: st.name, id: st.id })), assessments: cls.assessments.map((a) => ({ ...a, scores: a.scores.slice() })), reportKind: 'СОЧ', selectedAssessment: lastOf(cls, 'СОЧ') };
     cls.reportKind = 'СОР'; cls.selectedAssessment = lastOf(cls, 'СОР');
@@ -689,7 +691,7 @@ function renderPreview(): void {
       const bi = bandIndex(v, r.columns[ci].max, kc);
       return Array.from({ length: kc }, (_, j) => (j === bi ? `<td class="band">${inp}</td>` : '<td class="band"></td>')).join('');
     }).join('');
-    return `<tr data-r="${ri}" data-s="${row.studentIndex}" class="${row.reason ? 'retake' : ''} ${row.manual ? 'manual' : ''} ${row.pending ? 'pending' : ''} ${row.incomplete ? 'incomplete' : ''} ${row.fromJournal ? 'journal' : ''} ${rowDiff(row) ? 'diff' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total" title="${totalTip(row)}">${row.pending ? '' : row.total}</td><td data-k="pct">${row.pending ? '' : pct(row.percent)}</td><td data-k="grade">${row.pending ? '' : row.grade}</td>${del(row)}</tr>`;
+    return `<tr data-r="${ri}" data-s="${row.studentIndex}" class="${row.reason ? 'retake' : ''} ${row.manual ? 'manual' : ''} ${row.pending ? 'pending' : ''} ${row.incomplete ? 'incomplete' : ''} ${row.fromJournal ? 'journal' : ''} ${rowDiff(row) ? 'diff' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total" title="${totalTip(row) || 'Общий балл можно исправить — критерии разложатся заново'}"><input type="number" inputmode="numeric" min="0" max="${r.max}" data-act="total" data-s="${row.studentIndex}" value="${row.pending ? '' : row.total}" placeholder="·" /></td><td data-k="pct">${row.pending ? '' : pct(row.percent)}</td><td data-k="grade" title="Оценку можно исправить — общий балл подстроится под неё"><input type="number" inputmode="numeric" min="2" max="5" data-act="grade" data-s="${row.studentIndex}" value="${row.pending ? '' : row.grade}" /></td>${del(row)}</tr>`;
   }).join('');
   const footEl = document.createElement('tfoot');
   renderFootInto(footEl, r);
@@ -742,9 +744,9 @@ function onScoreEdit(input: HTMLInputElement): void {
   tr.classList.remove('pending', 'journal'); tr.classList.toggle('incomplete', !!row.incomplete); tr.classList.add('manual');
   tr.classList.toggle('diff', rowDiff(row));
   const tc = tr.querySelector<HTMLElement>('[data-k="total"]')!;
-  tc.textContent = String(row.total); tc.title = totalTip(row);
+  tc.querySelector('input')!.value = String(row.total); tc.title = totalTip(row);
   tr.querySelector('[data-k="pct"]')!.textContent = pct(row.percent);
-  tr.querySelector('[data-k="grade"]')!.textContent = String(row.grade);
+  tr.querySelector<HTMLInputElement>('[data-k="grade"] input')!.value = String(row.grade);
   renderFootInto($('preview').querySelector('tfoot')!, r);
   $('preview').querySelector('.stats')!.outerHTML = renderStats(r);
   const chart = $('preview').querySelector('.chart');
@@ -1181,6 +1183,23 @@ function bindEvents(): void {
     if (act === 'reason') st.reason = t.value || undefined;
     else if (act === 'retake') st.retake = fromIso(t.value) || undefined;
     else if (act === 'manual') { const v = Number(t.value); st.manualScore = t.value.trim() === '' || !Number.isFinite(v) ? null : Math.max(0, Math.min(cs.report?.max ?? 50, v)); }
+    else if (act === 'total' || act === 'grade') { // итог вручную: общий балл или оценка → критерии раскладываются заново
+      const r = cs.report; if (!r) return;
+      const v = Math.round(Number(t.value));
+      if (t.value.trim() === '') { st.manualScore = undefined; st.manualScores = undefined; }
+      else if (!Number.isFinite(v)) return;
+      else if (act === 'total') { st.manualScore = Math.max(0, Math.min(r.max, v)); st.manualScores = undefined; st.forceAbsent = false; }
+      else {
+        const g = Math.max(2, Math.min(5, v));
+        const row = r.rows.find((x) => x.studentIndex === Number(t.dataset.s));
+        const cur = row && !row.pending ? row.total : 0;
+        const fit = Array.from({ length: r.max + 1 }, (_, k) => k).filter((k) => gradeFor(r.max ? k / r.max : 0, r.thresholds) === g);
+        if (!fit.length) { renderPreview(); return; }
+        // ближайший к текущему баллу, который даёт эту оценку
+        st.manualScore = fit.reduce((a, b) => (Math.abs(b - cur) < Math.abs(a - cur) ? b : a));
+        st.manualScores = undefined; st.forceAbsent = false;
+      }
+    }
     else return;
     rebuild(state.active); renderPreview();
   });

@@ -179,27 +179,58 @@ export function interpret(nums: NumTok[], maxes: number[], cursor: number, mode:
  * Найти ученика по услышанным словам (фамилия, фамилия + имя, начало фамилии) — по звучанию.
  * −1, если уверенного совпадения нет: тогда балл не записывается чужому ученику.
  */
-export function findStudent(words: string[], students: string[]): number {
-  const cand = words.map(normalize).filter((w) => w.length >= 2).slice(0, 3);
+export function findStudent(words: string[], students: string[], aliases: Aliases = {}): number {
+  const cand = words.map(normalize).filter(Boolean).slice(0, 5);
   if (!cand.length) return -1;
-  const scores = students.map((name) => {
-    const parts = normalize(name).split(' ');
-    const sur = phon(parts[0]), full = phon(parts.slice(0, 2).join('')), first = phon(parts[1] ?? '');
+  // окна из 1–4 слов от начала фразы: распознаватель режет узбекскую фамилию на куски («об дурак мы ноф»)
+  const qs: { q: string; w: number }[] = [];
+  for (let a = 0; a < Math.min(3, cand.length); a++) for (let k = 1; k <= 4 && a + k <= cand.length; k++) qs.push({ q: nameKey(cand.slice(a, a + k).join('')), w: a ? 0.97 - 0.02 * a : 1 });
+  const norm = students.map(normalize);
+  for (const { q } of qs) { const i = aliases[q] ? norm.indexOf(aliases[q]) : -1; if (i >= 0) return i; } // выученное произношение
+  const scores = norm.map((name) => {
+    const p = name.split(' ');
+    const sur = nameKey(p[0]), first = nameKey(p[1] ?? ''), sf = nameKey(p.slice(0, 2).join('')), fs = nameKey([p[1] ?? '', p[0]].join(''));
     let best = 0;
-    for (let k = 1; k <= cand.length; k++) {
-      const q = phon(cand.slice(0, k).join(''));
+    for (const { q, w } of qs) {
       if (q.length < 3) continue;
-      best = Math.max(best, sim(q, sur), sim(q, full), 0.9 * sim(q, first));
-      if (q.length >= 4 && sur.startsWith(q)) best = Math.max(best, 0.88);
-      if (sur.length >= 4 && q.startsWith(sur)) best = Math.max(best, 0.9);
+      let s = Math.max(sim(q, sur), sim(q, sf), 0.96 * sim(q, fs), 0.9 * sim(q, first));
+      s = Math.max(s, 0.97 * sim(stem(q), stem(sur)), 0.95 * sim(stem(q), stem(sf))); // без -ов/-ова/-ев/-ева
+      if (w === 1 && skel(q).length >= 4) s = Math.max(s, 0.88 * sim(skel(q), skel(sur)), 0.86 * sim(skel(q), skel(sf))); // согласные
+      if (q.length >= Math.max(5, sur.length * 0.6) && sur.startsWith(q)) s = Math.max(s, 0.88);
+      if (sur.length >= 4 && q.startsWith(sur)) s = Math.max(s, 0.9);
+      best = Math.max(best, s * w);
     }
+    for (const [k, v] of Object.entries(aliases)) if (v === name) for (const { q } of qs) if (sim(q, k) >= 0.85) best = Math.max(best, 0.95);
     return best;
   });
   const order = scores.map((v, i) => [v, i] as const).sort((x, y) => y[0] - x[0]);
   const top = order[0], second = order[1] ?? [0, -1];
-  if (!top || top[0] < 0.72) return -1;
-  if (top[0] < 0.92 && top[0] - second[0] < 0.08) return -1; // два похожих — не угадываем
+  if (!top || top[0] < 0.7) return -1;
+  if (top[0] < 0.92 && top[0] - second[0] < 0.06) return -1; // два похожих — не угадываем
   return top[1];
+}
+
+/** Выученные произношения: звуковой ключ услышанного → имя ученика (как в списке, normalize). */
+export type Aliases = Record<string, string>;
+/** Звуковой ключ имени с поправками на узбекские звуки: х/қ ≈ к, дж ≈ ж, ғ ≈ г, ў ≈ у. */
+export const nameKey = (s: string): string => phon(normalize(s).replace(/дж/g, 'ж').replace(/[хқ]/g, 'к').replace(/ғ/g, 'г').replace(/ў/g, 'у'));
+const stem = (k: string) => k.replace(/(афа|ифа|аф|иф)$/, '');
+const skel = (k: string) => k.replace(/[аиу]/g, '');
+
+/**
+ * Слова имени из фразы: всё до первого числа или команды, включая короткие куски («а лайнеров» = Аллаёров).
+ * Если имя не в начале — прежнее правило: все слова, похожие на имя.
+ */
+export function nameWords(text: string): string[] {
+  const words = normalize(text).split(' ').filter(Boolean);
+  while (words.length && /^(ну|так|вот|это|значит|теперь)$/.test(words[0])) words.shift();
+  const cmd = parsePhrase(text).commands.length > 0; // слова команды («все на максимум», «следующий класс») — не имя
+  const out: string[] = [];
+  for (const w of words) {
+    const q = parsePhrase(w); if (q.commands.length || q.total || q.nums.length) break;
+    if (!(cmd && GRAMMAR_WORDS.includes(w))) out.push(w);
+  }
+  return out.join('').length >= 3 ? out : nameLike(words).filter((w) => !(cmd && GRAMMAR_WORDS.includes(w)));
 }
 
 function lev(a: string, b: string): number {

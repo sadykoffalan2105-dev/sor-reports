@@ -4,7 +4,7 @@
  * Правило безопасности: если прозвучала фамилия, а уверенного совпадения нет — ничего не записываем.
  */
 import type { ClassReport, JournalClass, Student } from '../core/types.ts';
-import { parsePhrase, interpret, findStudent, nameLike, wordsToDigits, sayNumbers, type Parsed } from './parse.ts';
+import { parsePhrase, interpret, findStudent, nameWords, nameKey, normalize, wordsToDigits, sayNumbers, type Parsed, type Aliases } from './parse.ts';
 import { VoskEngine, WebSpeechEngine, beep, voskAvailable, webSpeechAvailable, isApp, type Engine, type EngineKind } from './engine.ts';
 
 export interface VoiceHost {
@@ -24,6 +24,16 @@ const loadPrefs = (): Prefs => {
   const d: Prefs = { engine: defaultEngine(), lang: 'ru-RU', mode: 'criteria', speak: false, sound: true };
   try { return { ...d, ...(JSON.parse(localStorage.getItem(LS) ?? '{}') as Partial<Prefs>) }; } catch { return d; }
 };
+/** Выученные произношения имён (на этом устройстве): ключ услышанного → имя ученика. */
+const LSA = 'sor-reports.voice-names';
+const simKeys = (a: string, b: string): number => {
+  if (!a || !b) return 0;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return 1 - d[a.length][b.length] / Math.max(a.length, b.length);
+};
+const loadAliases = (): Aliases => { try { return JSON.parse(localStorage.getItem(LSA) ?? '{}') as Aliases; } catch { return {}; } };
 const h = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 interface Snapshot { cls: JournalClass; si: number; manualScores?: (number | null)[]; manualScore?: number | null; forceAbsent?: boolean; cursor: number }
@@ -37,6 +47,18 @@ export function initVoice(host: VoiceHost) {
   let si = 0, cursor = 0, clsId = '';
   let lastMsg = '', interim = '';
   const history: Snapshot[] = [];
+  const aliases = loadAliases();
+  const saveAliases = () => { try { localStorage.setItem(LSA, JSON.stringify(aliases)); } catch { /* ignore */ } };
+  let lastMiss: { key: string; heard: string; clsId: string; t: number } | null = null; // фамилия, которую не узнали
+  let train: number | null = null; // «Выучить имена»: номер ученика, чьё имя ждём
+  /** После «не узнал» учитель выбрал ученика (клик, «номер N», повтор фамилии) — запомнить, как прозвучало. */
+  const learn = (cls: JournalClass, idx: number, sameAs?: string): string => {
+    const m = lastMiss; lastMiss = null;
+    if (!m || m.clsId !== cls.id || Date.now() - m.t > 30000 || !cls.students[idx]) return '';
+    if (sameAs != null && simKeys(m.key, sameAs) < 0.5) return ''; // сказали другого ученика
+    aliases[m.key] = normalize(cls.students[idx].name); saveAliases();
+    return ` · запомнил: «${h(m.heard)}» = ${h(cls.students[idx].name.split(' ')[0])}`;
+  };
 
   /* ---------- панель ---------- */
   const bar = document.createElement('div');
@@ -58,6 +80,7 @@ export function initVoice(host: VoiceHost) {
           <option value="vosk">офлайн — точно, без интернета</option>
           <option value="web">браузер — онлайн</option>
         </select>
+        <button class="mini" type="button" id="vb-train" title="Прочитать список вслух один раз — программа запомнит, как звучит каждое имя">🎓 Выучить имена</button>
         <select id="vb-mode" title="Что вы диктуете"><option value="criteria">баллы по критериям</option><option value="total">только общий балл</option></select>
         <div class="vb-nav"><label class="vb-chk"><input type="checkbox" id="vb-sound" /> сигнал</label><label class="vb-chk"><input type="checkbox" id="vb-speak" /> озвучка</label></div>
         <div class="vb-nav"><button class="mini" type="button" id="vb-help" title="Как диктовать">?</button><button class="mini" type="button" id="vb-close" title="Закрыть">✕</button></div>
@@ -74,7 +97,8 @@ export function initVoice(host: VoiceHost) {
         <span><b>следующий класс</b>, <b>скачать</b>, <b>печать</b>, <b>стоп</b></span>
       </div>
       <b>Распознавание.</b> «Офлайн» работает в любом браузере и в приложении, без интернета; модель 46 МБ скачивается один раз. «Браузер» — встроенный сервис Chrome/Edge/Яндекса, нужен интернет.
-      Если фамилия не узнана, балл <b>не записывается</b> — скажите ещё раз или нажмите на строку ученика в таблице. Говорите числа раздельно; паузу делайте после всей строки.
+      Если фамилия не узнана, балл <b>не записывается</b> — скажите ещё раз или нажмите на строку ученика в таблице: программа <b>запомнит</b>, как прозвучало имя, и в следующий раз узнает сразу. Говорите числа раздельно; паузу делайте после всей строки.
+      <b>Сложные имена.</b> Нажмите «🎓 Выучить имена» и прочитайте список: фамилию (и имя) каждого ученика — так, как вы произносите их на уроке. Хватает одного раза, запоминается на этом устройстве. <button class="mini" type="button" id="vb-forget">забыть выученные имена</button>
     </div>`;
   document.body.appendChild(bar);
   const $ = <T extends HTMLElement>(id: string) => bar.querySelector('#' + id) as T;
@@ -158,7 +182,8 @@ export function initVoice(host: VoiceHost) {
     const tr = document.querySelector(`.rep tr[data-s="${si}"]`) as HTMLElement | null;
     if (tr) { tr.classList.add('voice-cur'); if (!bar.hidden) tr.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   };
-  const show = (msg: string, kind: 'ok' | 'err' | 'info' = 'info') => { interim = ''; lastMsg = `<span class="vb-${kind}">${msg}</span>`; render(); };
+  let note = ''; // «запомнил …» — дописывается к следующему сообщению
+  const show = (msg: string, kind: 'ok' | 'err' | 'info' = 'info') => { interim = ''; lastMsg = `<span class="vb-${kind}">${msg}${note}</span>`; note = ''; render(); };
 
   /* ---------- разбор фразы в действие (без изменений, пока не вызван run) ---------- */
   const plan = (p: Parsed, heard: string): Plan => {
@@ -190,17 +215,23 @@ export function initVoice(host: VoiceHost) {
     if (p.commands.includes('goto') && p.nums.length) {
       const k = p.nums[0].value - 1;
       if (k < 0 || k >= cls.students.length) return { ok: false, error: `в списке ${cls.students.length} учеников` };
-      return { ok: true, run: () => { si = k; cursor = 0; show(`→ ${k + 1}. ${h(cls.students[k].name)}`); signal('next'); say(cls.students[k].name.split(' ')[0]); } };
+      return { ok: true, run: () => { si = k; cursor = 0; show(`→ ${k + 1}. ${h(cls.students[k].name)}${learn(cls, k)}`); signal('next'); say(cls.students[k].name.split(' ')[0]); } };
     }
-    const nameWords = nameLike(p.words);
-    if (nameWords.length) {
-      const who = findStudent(nameWords, cls.students.map((s) => s.name));
-      if (who < 0) return { ok: false, error: `не узнал ученика «${nameWords.join(' ')}» — скажите фамилию ещё раз или нажмите на строку` };
+    const nw = nameWords(heard);
+    let learned = '';
+    if (nw.length) {
+      const who = findStudent(nw, cls.students.map((s) => s.name), aliases);
+      if (who < 0) {
+        if (!lastMiss || Date.now() - lastMiss.t > 1500) lastMiss = { key: nameKey(nw.join('')), heard: nw.join(' '), clsId: cls.id, t: Date.now() };
+        return { ok: false, error: `не узнал ученика «${h(nw.join(' '))}» — скажите ещё раз или нажмите на его строку (запомню произношение)` };
+      }
+      if (lastMiss) learned = learn(cls, who, nameKey(nw.join('')));
       if (who !== si) { target = who; tcursor = 0; }
     }
+    const nameWordsSaid = nw;
     const st: Student | undefined = cls.students[target];
     if (!st) return { ok: false, error: 'в классе нет учеников' };
-    const go = (fn: () => void) => ({ ok: true as const, run: () => { si = target; cursor = tcursor; fn(); } });
+    const go = (fn: () => void) => ({ ok: true as const, run: () => { si = target; cursor = tcursor; note = learned; fn(); } });
 
     if (p.commands.includes('repeat')) return go(() => {
       const row = rowOf(report, si);
@@ -219,7 +250,7 @@ export function initVoice(host: VoiceHost) {
       if (k < 0 || k >= maxes.length) return { ok: false, error: `критериев всего ${maxes.length}` };
       if (v > maxes[k]) return { ok: false, error: `${v} больше максимума ${maxes[k]} для ${names[k]}` };
       // «исправь» без фамилии — последнему продиктованному ученику этого класса
-      const fi = nameWords.length ? target : ([...history].reverse().find((x) => x.cls.id === cls.id)?.si ?? target);
+      const fi = nameWordsSaid.length ? target : ([...history].reverse().find((x) => x.cls.id === cls.id)?.si ?? target);
       const fst = cls.students[fi];
       return { ok: true, run: () => {
         snapshot(cls, fi);
@@ -263,12 +294,35 @@ export function initVoice(host: VoiceHost) {
     }
     if (p.commands.includes('next')) return { ok: true, run: () => { si = nextPending(cls, si); cursor = 0; show(`→ ${h(cls.students[si]?.name ?? '')}`); signal('next'); } };
     if (p.commands.includes('prev')) return { ok: true, run: () => { si = Math.max(0, si - 1); cursor = 0; show(`← ${h(cls.students[si]?.name ?? '')}`); signal('next'); } };
-    if (target !== si || nameWords.length) return go(() => { show(`→ ${h(st.name)} — диктуйте баллы`); signal('next'); say(st.name.split(' ')[0]); });
+    if (target !== si || nameWordsSaid.length) return go(() => { show(`→ ${h(st.name)} — диктуйте баллы`); signal('next'); say(st.name.split(' ')[0]); });
     return { ok: false, error: `не понял «${h(heard)}»` };
   };
 
   /** Перебрать варианты распознавания: первый, который даёт понятное действие. */
+  const trainShow = () => {
+    const c = syncClass();
+    if (!c || train == null) return;
+    const st = c.cls.students[train];
+    if (!st) { train = null; show(`имена выучены — ${Object.keys(aliases).length} произношений. Диктуйте баллы.`, 'ok'); signal('ok'); return; }
+    si = train; cursor = 0;
+    show(`🎓 Скажите: <b>${train + 1}. ${h(st.name)}</b> <small>(«дальше» — пропустить, «стоп» — закончить)</small>`);
+  };
+  const handleTrain = (alts: string[]) => {
+    const c = syncClass(); if (!c || train == null) return;
+    const p = parsePhrase(alts[0] ?? '');
+    if (p.commands.includes('stop') || p.commands.includes('undo')) { train = null; show('обучение закончено', 'ok'); return; }
+    if (p.commands.includes('next')) { train++; trainShow(); return; }
+    const nw = nameWords(alts[0] ?? '');
+    if (!nw.length) { show('не расслышал — скажите имя ещё раз', 'err'); signal('err'); return; }
+    const names = c.cls.students.map((s) => s.name);
+    const was = findStudent(nw, names, aliases);
+    if (was !== train) { for (const a of alts.slice(0, 2)) { const w = nameWords(a); if (w.length) aliases[nameKey(w.join(''))] = normalize(names[train]); } saveAliases(); }
+    signal('ok');
+    lastMsg = `<span class="vb-ok">${h(names[train].split(' ')[0])}: ${was === train ? 'узнаю и так ✓' : `запомнил «${h(nw.join(' '))}»`}</span>`;
+    train++; setTimeout(trainShow, 700); render();
+  };
   const handle = (alts: string[]) => {
+    if (train != null) { handleTrain(alts); return; }
     let firstErr = '';
     for (const alt of alts) {
       const p = parsePhrase(alt);
@@ -310,13 +364,25 @@ export function initVoice(host: VoiceHost) {
   $('vb-mode').addEventListener('change', () => { prefs.mode = ($('vb-mode') as HTMLSelectElement).value as Prefs['mode']; cursor = 0; savePrefs(); render(); });
   $('vb-speak').addEventListener('change', () => { prefs.speak = ($('vb-speak') as HTMLInputElement).checked; savePrefs(); });
   $('vb-sound').addEventListener('change', () => { prefs.sound = ($('vb-sound') as HTMLInputElement).checked; savePrefs(); });
+  $('vb-train').addEventListener('click', () => {
+    const c = syncClass(); if (!c) { show('сначала загрузите класс', 'err'); return; }
+    train = 0; if (!listening) void startListening().then(() => trainShow()); else trainShow();
+  });
+  bar.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('#vb-forget')) return;
+    if (!confirm('Забыть все выученные произношения имён на этом устройстве?')) return;
+    for (const k of Object.keys(aliases)) delete aliases[k];
+    saveAliases(); show('выученные имена забыты', 'ok');
+  });
   $('vb-help').addEventListener('click', () => { $('vb-helpbox').hidden = !$('vb-helpbox').hidden; });
   $('vb-close').addEventListener('click', () => { stopListening(); bar.hidden = true; document.body.classList.remove('voice-open'); });
   document.addEventListener('click', (e) => { // клик по строке — диктовать этому ученику
     if (bar.hidden) return;
     const tr = (e.target as HTMLElement).closest('.rep tbody tr[data-s]') as HTMLElement | null;
     if (!tr || (e.target as HTMLElement).closest('input, select, button')) return;
-    si = Number(tr.dataset.s); cursor = 0; render();
+    si = Number(tr.dataset.s); cursor = 0;
+    const c = syncClass(); const l = c ? learn(c.cls, si) : '';
+    if (l) show(`→ ${h(c!.cls.students[si].name)}${l}`, 'ok'); else render();
   });
   new MutationObserver(() => { if (!bar.hidden) { const tr = document.querySelector(`.rep tr[data-s="${si}"]`); if (tr && !tr.classList.contains('voice-cur')) tr.classList.add('voice-cur'); } })
     .observe(document.getElementById('preview') ?? document.body, { childList: true, subtree: true });
