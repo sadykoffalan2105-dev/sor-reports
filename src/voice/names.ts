@@ -50,7 +50,7 @@ export async function prepareNames(all: string[], onStatus: (s: NamesStatus) => 
   const count = () => { const v = new Set(Object.values(variants())); return names.filter((n) => v.has(fnv(normalize(n)))).length; };
   const status = (learning: boolean, extra = '') => {
     const r = count();
-    onStatus({ total: names.length, ready: r, learning, text: `🎤 Голосовая база: ${r} из ${names.length} имён${extra}` });
+    onStatus({ total: names.length, ready: r, learning, text: `🎤 Голосовая база: ${names.length} имён готово${r < names.length ? ` · у ${r} записано произношение` : ''}${extra}` });
   };
   status(false);
   if (!voskAvailable()) return;

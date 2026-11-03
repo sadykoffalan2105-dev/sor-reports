@@ -168,7 +168,7 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   // голосовая база: сразу разобрать имена всех загруженных классов (в фоне)
   void prepareNames(state.all.flatMap((cs) => cs.cls.students.map((st) => st.name)), (st) => {
     const el = $('voice-base'); el.hidden = false; el.textContent = st.text; el.classList.toggle('busy', st.learning);
-    el.title = 'Имена загруженных классов разобраны для голосового ввода: распознаватель узнаёт их сразу. Остальные можно выучить кнопкой «🎓 Выучить имена».';
+    el.title = 'Все имена загруженных классов разобраны и ищутся по звучанию за миллисекунды. «Записано произношение» — для этих учеников в базе уже есть, как распознаватель слышит их фамилии (в приложении для Windows записывается само для всех). Остальных можно один раз прочитать кнопкой «🎓 Выучить имена».';
   });
   if (errors.length) alert(errors.join('\n'));
 }
