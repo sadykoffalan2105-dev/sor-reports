@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import type { ClassReport, Settings } from '../core/types.ts';
 import { columnName, bandIndex } from '../core/structure.ts';
+import { gradeFor } from '../core/distribute.ts';
 import { buildHeader } from '../core/header.ts';
 import { injectCharts, type ChartJob, type ChartSeries, type DrawingShape } from './chart.ts';
 
@@ -75,18 +76,23 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
   const A = colLetter;
   const Ly = r.layout;
 
-  // ширины колонок
-  ws.getColumn(1).width = 3.5;
-  ws.getColumn(2).width = 27.4;
+  // ширины колонок: таблица шириной с диаграмму (диаграмме нужно место на каждого ученика), имена не обрезаются
+  const longest = Math.max(10, ...r.rows.map((x) => x.name.length));
+  ws.getColumn(1).width = 4;
+  ws.getColumn(2).width = Math.min(40, Math.max(27.4, longest * 1.05 + 2));
   if (L.reason) { ws.getColumn(L.reason).width = 14; ws.getColumn(L.date!).width = 11; }
-  r.columns.forEach((_, ci) => { for (let j = 0; j < L.kOf[ci]; j++) ws.getColumn(L.phys[ci] + j).width = L.kOf[ci] > 1 ? 4.6 : 7.25; });
+  const base = new Map<number, number>();
+  r.columns.forEach((_, ci) => { for (let j = 0; j < L.kOf[ci]; j++) base.set(L.phys[ci] + j, L.kOf[ci] > 1 ? 4.6 : 9); });
+  base.set(L.total, 8.5); base.set(L.percent, 8.5); base.set(L.grade, 12);
+  const fixedW = (ws.getColumn(1).width ?? 4) + (ws.getColumn(2).width ?? 27) + (L.reason ? 25 : 0);
+  const want = Math.max(95, 22 + r.rows.length * 2.4); // ширина диаграммы в символах
+  const have = [...base.values()].reduce((a, b) => a + b, 0);
+  const grow = Math.max(1, (want - fixedW) / have);
+  for (const [c, w] of base) ws.getColumn(c).width = Math.min(26, +(w * grow).toFixed(2));
   if (L.helper) r.columns.forEach((_, ci) => { ws.getColumn(L.helper + ci).width = 6; ws.getColumn(L.helper + ci).hidden = true; });
-  ws.getColumn(L.total).width = 7.25;
-  ws.getColumn(L.percent).width = 7;
-  ws.getColumn(L.grade).width = 10;
 
   // строки 1–3: шапка
-  const titleEnd = Math.max(L.total - 1, 8);
+  const titleEnd = Math.max(3, L.last - 1); // заголовок на всю таблицу, в колонке «Оценивание» — цифра варианта
   if (Ly.showTitle) {
     ws.mergeCells(1, 1, 1, titleEnd);
     const t = ws.getCell(1, 1);
@@ -106,14 +112,14 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
     ws.getCell(2, 1).font = { ...font, bold: true };
     ws.mergeCells(2, dateStart, 2, L.total);
     ws.getCell(2, dateStart).value = `дата проведение ${r.kind}     ${r.date ? r.date + 'г' : ''}`;
-    ws.getCell(2, dateStart).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
-    ws.getRow(2).height = 39;
+    ws.getCell(2, dateStart).alignment = { horizontal: 'left', vertical: 'middle' };
+    ws.getRow(2).height = 26;
     ws.getCell(3, 1).value = `Отсутствовали: ${r.absent}`;
     ws.getCell(3, 1).font = { ...font, bold: true };
     ws.mergeCells(3, dateStart, 3, L.total);
     ws.getCell(3, dateStart).value = `Дата внесения в emaktab.uz:  ${r.dateEntered ? r.dateEntered + 'г' : ''}`;
     ws.getCell(3, dateStart).alignment = { horizontal: 'left', vertical: 'middle' };
-    ws.getRow(3).height = 31.5;
+    ws.getRow(3).height = 24;
   } else {
     ws.getRow(2).height = 9; ws.getRow(3).height = 9;
   }
@@ -143,9 +149,20 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
   const k = L.bands;
   const hasTitles = r.tasks.some((t) => t.title?.trim());
   const hasLabels = r.columns.some((c) => c.header.includes('\n'));
+  const need = new Map<number, number>(); // строка шапки → нужная высота
+  const widthOf = (c1: number, c2: number) => { let w = 0; for (let c = c1; c <= c2; c++) w += ws.getColumn(c).width ?? 8; return w; };
+  const lines = (text: string, w: number) => text.split('\n').reduce((a, l) => a + Math.max(1, Math.ceil(l.length / Math.max(3, w * 0.95))), 0);
+  for (const cell of grid.cells) {
+    if (cell.vertical) continue;
+    const c1 = L.scoreStart + cell.col, h = lines(cell.text, widthOf(c1, c1 + cell.colSpan - 1)) * 15 + 8;
+    const rr = H1 + cell.row; need.set(rr, Math.max(need.get(rr) ?? 0, h / cell.rowSpan));
+  }
+  for (const [c, t] of [[L.total, Ly.labels.total], [L.percent, Ly.labels.percent], [L.grade, Ly.labels.grade]] as const) need.set(H1, Math.max(need.get(H1) ?? 0, (lines(t, widthOf(c, c)) * 15 + 8) / grid.rows));
+  const bandLen = Math.max(0, ...grid.cells.filter((x) => x.vertical).map((x) => x.text.length));
   for (let rr = H1; rr <= HB; rr++) {
     const isBand = k > 1 && rr === HB;
-    ws.getRow(rr).height = isBand ? 64 : rr === H1 ? (hasTitles ? 60 : 43.5) : (hasLabels ? 45 : 28.5);
+    const old = isBand ? 64 : rr === H1 ? (hasTitles ? 60 : 43.5) : (hasLabels ? 45 : 28.5);
+    ws.getRow(rr).height = Math.min(160, isBand ? Math.max(old, bandLen * 6.5 + 10) : Math.max(grid.rows > 1 ? 24 : old, need.get(rr) ?? 0));
     for (let cc = 1; cc <= L.last; cc++) { const cell = ws.getCell(rr, cc); cell.border = thin; cell.font = font; }
   }
 
@@ -204,7 +221,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
     }
     ws.getCell(avgRow, L.percent).value = { formula: `${A(L.total)}${avgRow}/${r.max}`, result: r.max ? r.avgTotal / r.max : 0 };
     ws.getCell(avgRow, L.percent).numFmt = '0%';
-    ws.getCell(avgRow, L.grade).value = { formula: gradeFormula(`${A(L.percent)}${avgRow}`, r.thresholds), result: 0 };
+    ws.getCell(avgRow, L.grade).value = { formula: gradeFormula(`${A(L.percent)}${avgRow}`, r.thresholds), result: gradeFor(r.max ? r.avgTotal / r.max : 0, r.thresholds) };
   }
   if (pctRow) {
     ws.getCell(pctRow, 2).value = 'Процентный показатель';
@@ -273,7 +290,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
     ? { name: 'Общий балл', nameRef: `${sheetRef}!$${A(L.total)}$${H1}`, valRef: `${sheetRef}!$${A(L.total)}$${first}:$${A(L.total)}$${lastRow}`, values: r.rows.map((row) => (row.absent ? null : row.total)) }
     : undefined;
   const chartTop = noteLines.length ? signRow + 9 : signRow + 3;
-  const chartRight = Math.max(L.last, 10) + (r.rows.length > 25 ? 2 : 0);
+  const chartRight = L.last; // правый край таблицы (последняя видимая колонка — «Оценивание»)
   return {
     sheetId: ws.id,
     spec: {
