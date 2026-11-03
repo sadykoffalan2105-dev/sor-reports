@@ -23,7 +23,7 @@ function defaults(): Settings {
   const presets = builtinPresets();
   return {
     school: 'Государственная специализированная общеобразовательная школа № 300',
-    kind: 'СОР', number: 1, teacherShort: '', year: '2025–2026',
+    kind: 'СОР', make: 'both', number: 1, teacherShort: '', year: '2025–2026',
     structure: cloneStructure(presets[0].structure),
     presets, presetId: presets[0].id,
     strategy: 'ladder', seed: 7, spread: 1,
@@ -135,7 +135,7 @@ function rebuild(index?: number): void {
     const k = kindOf(cs), s = S();
     const sk: Settings = k === s.kind ? s : { ...s, kind: k, number: k === 'СОЧ' ? cs.cls.quarter ?? s.number : s.number };
     cs.report = cs.cls.assessments.length ? buildReport(cs.cls, sk, structureFor(cs), ladderFor(structureTextFor(cs)).rows) : null;
-    if (cs.report && s.make === 'both' && cs.cls.reportKind) cs.report.sheetName = `${cs.report.sheetName} ${k}`;
+    if (cs.report) { const t = entryTags(cs); cs.report.sheetName = [cs.report.sheetName, t.subj, t.kind].filter(Boolean).join(' '); }
   });
 }
 
@@ -170,11 +170,25 @@ function lastOf(cls: JournalClass, kind: Kind): string | undefined {
   const xs = cls.assessments.filter((a) => a.kind === kind);
   return (xs.filter((a) => a.scores.some((x) => x != null)).at(-1) ?? xs.at(-1))?.id;
 }
+/** «Русская литература» → «литература», «Русский язык» → «русский». */
+function subjectShort(subj?: string): string {
+  const w = (subj ?? '').trim().toLowerCase().replace(/[«»"]/g, '').split(/\s+/).filter(Boolean);
+  if (!w.length) return '';
+  if (w.length > 1 && /^(язык|тили|tili)$/.test(w[w.length - 1])) return w[0].replace(/(ский|цкий|ская|кий)$/, (m) => m === 'ская' ? 'ский' : m).slice(0, 12);
+  return w[w.length - 1].replace(/\./g, '').slice(0, 12);
+}
+/** Подписи записей: предмет — если один класс встречается с разными предметами, вид — если видны и СОР, и СОЧ. */
+function entryTags(cs: ClassState): { subj: string; kind: string } {
+  const same = state.classes.filter((x) => x.cls.className === cs.cls.className && x.cls.group === cs.cls.group);
+  const subj = new Set(same.map((x) => (x.cls.subject ?? '').trim().toLowerCase())).size > 1 ? subjectShort(cs.cls.subject) : '';
+  const kind = cs.cls.reportKind && state.classes.some((x) => x.cls.reportKind && x.cls.reportKind !== cs.cls.reportKind) ? cs.cls.reportKind : '';
+  return { subj, kind };
+}
 const kindOf = (cs: ClassState): Kind => cs.cls.reportKind ?? (S().make === 'СОЧ' ? 'СОЧ' : 'СОР');
 const has = (cls: JournalClass, kind: Kind) => cls.assessments.some((a) => a.kind === kind);
 /** Какие записи видны: «СОР», «СОЧ» или обе. */
 function applyMake(): void {
-  const m = S().make ?? 'СОР';
+  const m = S().make ?? 'both';
   const cur = state.classes[state.active];
   state.classes = state.all.filter((cs) => m === 'both' || !cs.cls.reportKind || cs.cls.reportKind === m);
   const i = cur ? state.classes.indexOf(cur) : -1;
@@ -215,8 +229,13 @@ function addOne(cls: JournalClass): void {
   if (cls.reportKind === 'СОЧ') { // для СОЧ — разбаловка с тем же максимумом («СОЧ 40»), лучше своей параллели
     const am = cls.assessments.find((a) => a.id === cls.selectedAssessment)?.max ?? 40;
     const fit = s.presets.filter((p) => structureMax(p.structure) === am);
-    const p = fit.find((x) => grade && new RegExp(`^${grade}\\s*класс`, 'i').test(x.name) && /СОЧ/i.test(x.name)) ?? fit.find((x) => /СОЧ/i.test(x.name)) ?? fit[0];
-    state.all.push({ cls, presetId: p && p.id !== s.presetId ? p.id : '', report: null });
+    let p = fit.find((x) => grade && new RegExp(`^${grade}\\s*класс`, 'i').test(x.name) && /СОЧ/i.test(x.name)) ?? fit.find((x) => /СОЧ/i.test(x.name)) ?? fit[0];
+    if (!p) { // разбаловки на этот максимум нет — заготовка, её правят во вкладке «N-е · СОЧ»
+      const parts = Array.from({ length: Math.ceil(am / 10) }, (_, j) => Math.min(10, am - j * 10));
+      p = { id: newPresetId(), name: `${grade ? grade + ' класс — ' : ''}СОЧ ${am}`, structure: parseStructure(parts.join('; '))! };
+      s.presets.push(p); saveSettings();
+    }
+    state.all.push({ cls, presetId: p.id, report: null });
     return;
   }
   const auto = grade ? s.presets.find((p) => new RegExp(`^${grade}\\s*класс`, 'i').test(p.name)) : undefined;
@@ -236,12 +255,13 @@ function renderGrades(): void {
   const box = $('grades');
   const grades = [...new Set(state.classes.map((cs) => cs.cls.className.match(/^\d+/)?.[0]).filter((g): g is string => !!g))].sort((a, b) => Number(a) - Number(b));
   if (grades.length < 1 || state.classes.length < 2) { box.innerHTML = ''; return; }
-  box.innerHTML = grades.map((g) => {
-    const members = gradeClasses(g);
+  const kinds = [...new Set(state.classes.map(kindOf))];
+  box.innerHTML = grades.flatMap((g) => kinds.map((k) => [g, k] as const)).map(([g, k]) => {
+    const members = gradeClasses(g, k);
     if (!members.length) return '';
     const ids = new Set(members.map((cs) => cs.presetId));
     const cur = ids.size === 1 ? [...ids][0] : '';
-    return `<div class="grade" data-g="${g}"><b>${g}-е классы</b><span class="muted">(${members.map((m) => m.cls.className).join(', ')})</span>
+    return `<div class="grade" data-g="${g}" data-k="${k}"><b>${g}-е классы${kinds.length > 1 ? ` · <span class="kind k-${k === 'СОЧ' ? 'soch' : 'sor'}">${k}</span>` : ''}</b><span class="muted">(${members.map((m) => [m.cls.className, entryTags(m).subj].filter(Boolean).join(' ')).join(', ')})</span>
       <select data-act="grade-preset">${ids.size > 1 ? '<option value="" selected>разные…</option>' : ''}${presetOptions(cur, true)}</select>
       <button class="btn small ghost" type="button" data-act="grade-own" title="Создать копию общей разбаловки для этой параллели">＋ своя</button></div>`;
   }).join('');
@@ -262,7 +282,7 @@ function renderClasses(): void {
     const am = selectedMax(c);
     const warn = am != null && sm !== am ? `<div class="warn">Сумма разбаловки ${sm} ≠ максимуму работы в журнале ${am}. Выберите другую разбаловку для этого класса или поправьте её.</div>` : '';
     return `<div class="cls" data-i="${i}">
-      <div><span class="name">${h(c.className)}${c.group ? ' · ' + h(c.group) : ''}${c.reportKind ? ` · <span class="kind k-${c.reportKind === 'СОЧ' ? 'soch' : 'sor'}">${c.reportKind}</span>` : ''}</span>
+      <div><span class="name">${h(c.className)}${c.group ? ' · ' + h(c.group) : ''}${entryTags(cs).subj ? ' · ' + h(c.subject ?? '') : ''}${c.reportKind ? ` · <span class="kind k-${c.reportKind === 'СОЧ' ? 'soch' : 'sor'}">${c.reportKind}</span>` : ''}</span>
         ${kindBadges(c)}
         <div class="meta">${h(c.subject ?? '')}${c.quarter ? ' · ' + c.quarter + ' четверть' : ''} · учеников: ${c.students.length} · ${h(c.source)}</div></div>
       <button class="btn small ghost" data-act="remove" title="Убрать класс">✕</button>
@@ -291,8 +311,8 @@ function kindBadges(c: JournalClass): string {
 /* ---------- рендер: пресеты и редактор структуры ---------- */
 
 /** Классы параллели («6» → все 6-е). */
-function gradeClasses(g: string): ClassState[] {
-  const cur = state.classes[state.active], k = cur ? kindOf(cur) : 'СОР';
+function gradeClasses(g: string, kind?: Kind): ClassState[] {
+  const cur = state.classes[state.active], k = kind ?? (cur ? kindOf(cur) : 'СОР');
   return state.classes.filter((cs) => (cs.cls.className.startsWith(g + '-') || cs.cls.className === g) && kindOf(cs) === k);
 }
 function gradesList(): string[] {
@@ -315,7 +335,7 @@ function renderEditTabs(): void {
   if (state.editGrade && !grades.includes(state.editGrade)) state.editGrade = '';
   const tab = (g: string, label: string, hint: string) => `<button class="tab ${g === state.editGrade ? 'active' : ''}" type="button" data-g="${g}" title="${h(hint)}">${h(label)}</button>`;
   $('edit-tabs').innerHTML = tab('', 'Общая', 'Общая разбаловка для классов без своей')
-    + grades.map((g) => { const p = gradePreset(g); return tab(g, `${g}-е${p ? '' : ' · общая'}`, p ? `Своя: ${p.name}` : 'Используют общую разбаловку'); }).join('')
+    + grades.map((g) => { const p = gradePreset(g); const cur = state.classes[state.active]; const kk = cur && entryTags(cur).kind ? ' ' + kindOf(cur) : ''; return tab(g, `${g}-е${kk}${p ? '' : ' · общая'}`, p ? `Своя: ${p.name}` : 'Используют общую разбаловку'); }).join('')
     + (state.editGrade && !gradePreset(state.editGrade) ? `<button class="btn small accent" type="button" data-act="own-for-grade">＋ своя для ${state.editGrade}-х</button>` : '');
 }
 
@@ -566,7 +586,7 @@ function onLadderEdit(input: HTMLInputElement): void {
 
 function renderTabs(): void {
   $('tabs').innerHTML = state.classes.map((cs, i) =>
-    `<button class="tab ${i === state.active ? 'active' : ''}" data-i="${i}">${h(cs.cls.className)}${cs.cls.group === 'девочки' ? ' Д' : ''}${S().make === 'both' && cs.cls.reportKind ? ` <small>${cs.cls.reportKind}</small>` : ''}</button>`).join('');
+    `<button class="tab ${i === state.active ? 'active' : ''}" data-i="${i}">${h(cs.cls.className)}${cs.cls.group === 'девочки' ? ' Д' : ''}${((t) => (t.subj ? ` <small>${h(t.subj)}</small>` : '') + (t.kind ? ` <small class="k-${t.kind === 'СОЧ' ? 'soch' : 'sor'}">${t.kind}</small>` : ''))(entryTags(cs))}</button>`).join('');
 }
 
 function renderFootInto(el: HTMLElement, r: ClassReport): void {
@@ -1093,17 +1113,17 @@ function bindEvents(): void {
   });
   $('grades').addEventListener('change', (e) => {
     const t = e.target as HTMLSelectElement; if (t.dataset.act !== 'grade-preset') return;
-    const g = (t.closest('.grade') as HTMLElement).dataset.g!;
-    for (const cs of state.classes) if (cs.cls.className.startsWith(g + '-') || cs.cls.className === g) cs.presetId = t.value;
+    const el = t.closest('.grade') as HTMLElement;
+    for (const cs of gradeClasses(el.dataset.g!, el.dataset.k as Kind)) cs.presetId = t.value;
     rebuild(); render();
   });
   $('grades').addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest('[data-act="grade-own"]'); if (!b) return;
-    const g = (b.closest('.grade') as HTMLElement).dataset.g!;
-    const base = currentPreset();
-    const p: Preset = { id: newPresetId(), name: `${g} класс — своя`, structure: cloneStructure(base.structure) };
+    const el = b.closest('.grade') as HTMLElement, g = el.dataset.g!, k = el.dataset.k as Kind;
+    const members = gradeClasses(g, k);
+    const p: Preset = { id: newPresetId(), name: `${g} класс — ${k} своя`, structure: cloneStructure(members[0] ? structureFor(members[0]) : currentPreset().structure) };
     S().presets.push(p);
-    for (const cs of state.classes) if (cs.cls.className.startsWith(g + '-') || cs.cls.className === g) cs.presetId = p.id;
+    for (const cs of members) cs.presetId = p.id;
     S().presetId = p.id; S().structure = cloneStructure(p.structure); // сразу открыть её в редакторе
     saveSettings(); rebuild(); render();
     $('struct-editor').scrollIntoView({ block: 'start', behavior: 'smooth' });

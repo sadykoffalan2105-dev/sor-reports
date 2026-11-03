@@ -377,6 +377,9 @@ body[data-mode="paper"] #voice-btn { background: var(--accent); color: #fff; bor
 .kind.k-sor { background: #0b6bcb; }
 .kind.k-soch { background: #8e44ad; }
 .tab small { opacity: .75; font-size: 11px; }
+.tab small.k-sor, .tab small.k-soch { opacity: 1; color: #fff; padding: 0 5px; border-radius: 6px; }
+.tab small.k-sor { background: #0b6bcb; }
+.tab small.k-soch { background: #8e44ad; }
 .rep tr.incomplete td input:placeholder-shown { border: 1px dashed #e0a800; background: #fff; }
 .vb-tag.warn { background: #6b5200; color: #ffe8a3; }
 .vb-progress { height: 6px; background: #2b3b48; border-radius: 999px; overflow: hidden; }

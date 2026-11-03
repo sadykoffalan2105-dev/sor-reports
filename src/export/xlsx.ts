@@ -57,9 +57,9 @@ function titleHeight(text: string, widthChars: number): number {
 }
 
 function uniqueSheetName(name: string, used: Set<string>): string {
-  let s = name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 28) || 'Лист';
-  let i = 2;
-  while (used.has(s.toLowerCase())) s = `${name} (${i++})`;
+  const base = name.replace(/[\\/?*[\]:']/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 31) || 'Лист';
+  let s = base, i = 2;
+  while (used.has(s.toLowerCase())) { const suf = ` (${i++})`; s = base.slice(0, 31 - suf.length) + suf; } // Excel: ≤ 31 символа
   used.add(s.toLowerCase());
   return s;
 }
