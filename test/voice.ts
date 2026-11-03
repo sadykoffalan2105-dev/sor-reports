@@ -96,5 +96,8 @@ eq('номер', parsePhrase('номер пять').commands, ['goto']);
   eq('выученное произношение', findStudent(nameWords('о клубы пять'), uzc, { [nameKey('оклубы')]: normalize(uzc[29]) }), 29);
   eq('команда — не имя', nameWords('все на максимум'), []);
 }
+eq('половинки', parsePhrase('семь с половиной восемнадцать пять и пять').nums.map((n) => n.value), [7.5, 18, 5, 5]);
+eq('«половиной» — не имя', nameWords('семь с половиной восемнадцать пять и пять'), []);
+eq('25,5 и 7,5 цифрами', parsePhrase('двадцать пять с половиной 7,5').nums.map((n) => n.value), [25.5, 7.5]);
 console.log(`голос: проверок ${ok + bad}, ошибок ${bad}`);
 if (bad) process.exitCode = 1;

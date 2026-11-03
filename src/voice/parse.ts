@@ -285,5 +285,7 @@ export function phon(input: string): string {
 }
 const sim = (a: string, b: string): number => (a && b ? 1 - lev(a, b) / Math.max(a.length, b.length) : 0);
 
+/** «с половиной», «ярим» — часть числа (7,5), не имя. */
+const HALF_RE = /^(с|половиной|половина|пол|ярим|yarim)$/;
 /** Слова, похожие на попытку назвать ученика (не числа, не команды, не «ну/и»). */
-export const nameLike = (words: string[]): string[] => words.filter((w) => { if (w.length < 3) return false; const q = parsePhrase(w); return !q.commands.length && !q.total && !q.nums.length; });
+export const nameLike = (words: string[]): string[] => words.filter((w) => { if (w.length < 3 || HALF_RE.test(w)) return false; const q = parsePhrase(w); return !q.commands.length && !q.total && !q.nums.length; });
