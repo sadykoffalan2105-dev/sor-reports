@@ -148,14 +148,16 @@ function migrateLadders(s: Settings): void {
   s.ladders = {};
 }
 
+/** Отчёт класса (вид работы и номер — свои у СОР и СОЧ). over — поправки настроек (пустышка: все ученики). */
+function reportFor(cs: ClassState, over: Partial<Settings> = {}): ClassReport | null {
+  const k = kindOf(cs), s = S();
+  const sk: Settings = { ...s, ...(k === s.kind ? {} : { kind: k, number: k === 'СОЧ' ? cs.cls.quarter ?? s.number : s.number }), ...over };
+  const r = cs.cls.assessments.length ? buildReport(cs.cls, sk, structureFor(cs), ladderFor(structureTextFor(cs)).rows) : null;
+  if (r) { const t = entryTags(cs); r.sheetName = [r.sheetName, t.subj, t.kind].filter(Boolean).join(' '); }
+  return r;
+}
 function rebuild(index?: number): void {
-  state.classes.forEach((cs, i) => {
-    if (index != null && i !== index) return;
-    const k = kindOf(cs), s = S();
-    const sk: Settings = k === s.kind ? s : { ...s, kind: k, number: k === 'СОЧ' ? cs.cls.quarter ?? s.number : s.number };
-    cs.report = cs.cls.assessments.length ? buildReport(cs.cls, sk, structureFor(cs), ladderFor(structureTextFor(cs)).rows) : null;
-    if (cs.report) { const t = entryTags(cs); cs.report.sheetName = [cs.report.sheetName, t.subj, t.kind].filter(Boolean).join(' '); }
-  });
+  state.classes.forEach((cs, i) => { if (index == null || i === index) cs.report = reportFor(cs); });
 }
 
 function download(bytes: Uint8Array, name: string): void {
@@ -701,6 +703,7 @@ function renderPreview(): void {
   const hasAny = state.classes.some((x) => x.report);
   ($('dl-all') as HTMLButtonElement).disabled = !hasAny;
   ($('dl-one') as HTMLButtonElement).disabled = !r;
+  ($('dl-blank') as HTMLButtonElement).disabled = !r; ($('dl-blank-all') as HTMLButtonElement).disabled = !hasAny;
   ($('reshuffle') as HTMLButtonElement).disabled = !r;
   ($('print') as HTMLButtonElement).disabled = !r;
   if (!r) { box.innerHTML = '<div class="empty">Загрузите журнал — здесь появится отчёт.</div>'; return; }
@@ -1281,6 +1284,14 @@ function bindEvents(): void {
     if (!reports.length) return;
     if (!(await confirmPending(reports))) return;
     download(await exportWorkbook(reports, S()), fileNameFor(reports, S()));
+  });
+  $('dl-blank').addEventListener('click', async () => {
+    const cs = state.classes[state.active]; const r = cs && reportFor(cs, { includeAbsent: true, workMode: 'dist' }); if (!r) return; // в бланке — все ученики
+    download(await exportWorkbook([r], S(), true), fileNameFor([r], S()).replace('.xlsx', ` ${r.sheetName} пустышка.xlsx`));
+  });
+  $('dl-blank-all').addEventListener('click', async () => {
+    const reports = state.classes.map((c) => reportFor(c, { includeAbsent: true, workMode: 'dist' })).filter((r): r is ClassReport => !!r);
+    if (reports.length) download(await exportWorkbook(reports, S(), true), fileNameFor(reports, S()).replace('.xlsx', ' пустышки.xlsx'));
   });
   $('dl-one').addEventListener('click', async () => {
     const r = state.classes[state.active]?.report; if (!r) return;

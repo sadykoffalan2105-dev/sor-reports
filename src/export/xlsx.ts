@@ -66,10 +66,15 @@ function uniqueSheetName(name: string, used: Set<string>): string {
 }
 
 /** Заполнить лист по образцу школьного отчёта. Возвращает задание на диаграмму. */
-export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Settings): ChartJob {
+export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Settings, blank = false): ChartJob {
   // «не введено» в бумажном режиме — в отчёт как отсутствующие (или не выводятся без галочки)
   const kept = report.rows.filter((x) => !x.pending || s.includeAbsent);
-  const r: ClassReport = kept.length === report.rows.length ? report : { ...report, rows: kept.map((x, i) => ({ ...x, n: i + 1 })) };
+  const r0: ClassReport = kept.length === report.rows.length ? report : { ...report, rows: kept.map((x, i) => ({ ...x, n: i + 1 })) };
+  // пустышка (бланк): заголовок, шапка таблицы, № и ФИО всех учеников, подпись — без баллов, итогов, примечания и диаграммы
+  const r: ClassReport = !blank ? r0 : {
+    ...report, rows: report.rows.map((x, i) => ({ ...x, n: i + 1, absent: false, reason: undefined, retake: undefined })),
+    layout: { ...report.layout, showInfo: false, showVariant: false, showAvg: false, showPct: false, showCounts: false, showEff: false, showNote: false, showChart: false },
+  };
   const font = { name: s.fontName || 'Aptos Narrow', size: 11 };
   const L = layoutFor(r);
   const sheetRef = `'${ws.name.replace(/'/g, "''")}'`;
@@ -174,7 +179,8 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
     ws.getCell(rn, 1).value = row.n;
     ws.getCell(rn, 2).value = row.name;
     ws.getCell(rn, 2).alignment = { vertical: 'middle' };
-    if (row.absent) {
+    if (blank) { /* пустышка: клетки баллов и итогов пустые */ }
+    else if (row.absent) {
       if (L.reason) {
         ws.getCell(rn, L.reason).value = row.reason || (r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал');
         if (row.retake) ws.getCell(rn, L.date!).value = row.retake;
@@ -315,7 +321,7 @@ export function shortName(full: string): string {
 }
 
 /** Собрать книгу: лист на класс + диаграммы. */
-export async function exportWorkbook(reports: ClassReport[], s: Settings): Promise<Uint8Array> {
+export async function exportWorkbook(reports: ClassReport[], s: Settings, blank = false): Promise<Uint8Array> {
   const wb = new ExcelJS.Workbook();
   wb.calcProperties.fullCalcOnLoad = true; // формулы (в т.ч. в скрытых колонках уровней) пересчитать при открытии
   wb.creator = s.teacherShort || 'sor-reports';
@@ -324,7 +330,7 @@ export async function exportWorkbook(reports: ClassReport[], s: Settings): Promi
   const jobs: ChartJob[] = [];
   for (const r of reports) {
     const ws = wb.addWorksheet(uniqueSheetName(r.sheetName, used));
-    jobs.push(fillSheet(ws, r, s));
+    jobs.push(fillSheet(ws, r, s, blank));
   }
   const buf = await wb.xlsx.writeBuffer();
   return injectCharts(buf as ArrayBuffer, jobs);
