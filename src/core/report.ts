@@ -49,6 +49,8 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
   const rowsOf = s.strategy === 'ladder'
     ? (ladderFits(ladder, maxes) ? ladder : generateLadder(maxes))
     : undefined;
+  const ladders = new Map<string, Ladder>();
+  const ladderOf = (mx: number[]): Ladder => { const k = mx.join(','); if (!ladders.has(k)) ladders.set(k, generateLadder(mx)); return ladders.get(k)!; };
   const rows: ReportRow[] = [];
   const absentNames: string[] = [];
   let n = 0;
@@ -72,7 +74,17 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     }
     const rng = makeRng((s.seed ^ hash(st.name)) >>> 0);
     const t = Math.max(0, Math.min(max, Math.round(score)));
-    const scores = own ? own : rowsOf?.[t] ? rowsOf[t].slice()
+    const fx = columns.map((c) => (c.fixed != null ? Math.max(0, Math.min(c.max, c.fixed)) : null));
+    const fixedSum = fx.reduce<number>((a, b) => a + (b ?? 0), 0);
+    const split = (tt: number, mx: number[], tg: (number | undefined)[]) => s.strategy === 'ladder' ? (ladderOf(mx)[tt] ?? mx.map(() => 0)).slice()
+      : s.strategy === 'targets' ? distributeTargets(tt, mx, tg, rng, s.spread ?? 1) : distribute(tt, mx, s.strategy, rng);
+    let scores: number[];
+    if (own) scores = own;
+    else if (fixedSum && fx.some((v) => v == null) && t >= fixedSum) { // «у всех одинаково»: остальное — по другим критериям
+      const free = columns.map((_, k) => k).filter((k) => fx[k] == null);
+      const part = split(Math.min(t - fixedSum, free.reduce((a, k) => a + maxes[k], 0)), free.map((k) => maxes[k]), free.map((k) => columns[k].target));
+      scores = columns.map((_, k) => fx[k] ?? part[free.indexOf(k)]);
+    } else scores = rowsOf?.[t] ? rowsOf[t].slice()
       : s.strategy === 'targets' ? distributeTargets(score, maxes, columns.map((c) => c.target), rng, s.spread ?? 1)
       : distribute(score, maxes, s.strategy === 'ladder' ? 'largest' : s.strategy, rng);
     const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i, manual: !!own, raw: raw ?? undefined, incomplete: !!raw && raw.some((v) => v == null) };

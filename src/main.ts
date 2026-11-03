@@ -4,7 +4,7 @@ import { buildReport, recalcRow, recalcSummary, fullDate } from './core/report.t
 import { gradeFor } from './core/distribute.ts';
 import {
   parseStructure, structureFromText, structureToText, structureMax, flattenColumns, taskHeader, taskMax,
-  cloneStructure, normalizeStructure, newPresetId, builtinPresets, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
+  cloneStructure, normalizeStructure, newPresetId, builtinPresets, technologyPreset, TECH_NAME, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
 } from './core/structure.ts';
 import { buildHeader } from './core/header.ts';
 import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLadderGaps, type Ladder, type RuleStep } from './core/ladder.ts';
@@ -53,6 +53,7 @@ function loadSettings(): Settings {
       s.ladderRows = j.ladderRows ?? {}; s.ladderRules = j.ladderRules ?? {};
       migrateLadders(s);
       if (!Array.isArray(s.presets) || !s.presets.length) { s.presets = d.presets; s.presetId = d.presetId; }
+      if (!s.presets.some((p) => p.name === TECH_NAME)) s.presets.push(technologyPreset());
       if (!s.presets.some((p) => p.id === s.presetId)) s.presetId = s.presets[0].id;
       s.structure = cloneStructure(s.presets.find((p) => p.id === s.presetId)!.structure);
       return s;
@@ -413,6 +414,7 @@ function renderPart(p: Part, path: number[]): string {
     <button class="x" type="button" data-act="del-part" title="Убрать критерий">✕</button>
     <input type="text" data-f="plabel" value="${h(p.label ?? '')}" placeholder="название" title="Название критерия в шапке" />
     <input type="number" data-f="ptarget" min="0" max="100" value="${p.target ?? ''}" placeholder="цель %" title="Целевой % для раскидки «по целям»" />
+    ${p.parts?.length ? '' : `<input type="number" data-f="pfixed" min="0" max="${p.max}" value="${p.fixed ?? ''}" placeholder="у всех" title="Одинаковый балл у всех учеников (например, ${p.max}) — раскидываются только остальные критерии. Пусто — как обычно" />`}
     <select data-f="pbands" title="Уровни под этим критерием">${bandOpts(p.bands)}</select>
     <button class="mini tiny" type="button" data-act="add-sub" title="Разделить на подкритерии (критерий в критерии)">＋ под</button>
   </div>`;
@@ -460,10 +462,10 @@ function onStructInput(t: HTMLInputElement): void {
   else if (f === 'tbands') task.bands = bandsV(t.value);
   else if (f === 'tmax') task.max = num(t.value);
   else if (f === 'ttarget') task.target = pctv(t.value);
-  else if (f === 'plabel' || f === 'pmax' || f === 'ptarget' || f === 'pbands') {
+  else if (f === 'plabel' || f === 'pmax' || f === 'ptarget' || f === 'pbands' || f === 'pfixed') {
     const path = pathOf(t); const part = path && (nodeAt(st, path) as Part | undefined);
     if (!part) return;
-    if (f === 'plabel') part.label = t.value; else if (f === 'ptarget') part.target = pctv(t.value); else if (f === 'pbands') part.bands = bandsV(t.value); else part.max = num(t.value);
+    if (f === 'plabel') part.label = t.value; else if (f === 'pfixed') part.fixed = t.value.trim() === '' ? undefined : Math.max(0, Math.min(part.max, Math.round(Number(t.value)) || 0)); else if (f === 'ptarget') part.target = pctv(t.value); else if (f === 'pbands') part.bands = bandsV(t.value); else part.max = num(t.value);
   } else return;
   setStructure(st);
   const cur = editingStructure();

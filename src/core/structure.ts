@@ -38,7 +38,7 @@ export function flattenColumns(s: Structure): ScoreColumn[] {
     const walk = (parts: Part[], path: number[]) => parts.forEach((p, pi) => {
       const np = [...path, pi];
       if (p.parts?.length) walk(p.parts, np);
-      else cols.push({ key: 't' + np.join('_'), taskIndex: ti, partIndex: np[1], path: np, header: partHeader(p, s, np), max: p.max, target: p.target, bands: effBands(p.bands, s) });
+      else cols.push({ key: 't' + np.join('_'), taskIndex: ti, partIndex: np[1], path: np, header: partHeader(p, s, np), max: p.max, target: p.target, fixed: p.fixed, bands: effBands(p.bands, s) });
     });
     walk(t.parts, [ti]);
   });
@@ -59,7 +59,7 @@ export const pathNum = (path: number[]): string => path.map((x) => x + 1).join('
 /** Заголовок задания: «2 задание 40 баллов» (или «2 зад\n40 балл»), при наличии названия — ещё строка. */
 export function taskHeader(t: Task, i: number, style: HeaderStyle = 'full'): string {
   if (style === 'paren') return hasPts(t.title) ? t.title!.trim() : `${t.title?.trim() || `${i + 1} задание`} (${pointsLabel(taskMax(t))})`;
-  if (hasPts(t.title)) return t.title!.trim();
+  if (hasPts(t.title) || /^\d+(\.\d+)*(\s*зад\S*)?$/i.test(t.title?.trim() ?? '')) return t.title!.trim();
   const base = style === 'short' ? `${i + 1} зад\n${taskMax(t)} балл` : `${i + 1} задание ${pointsLabel(taskMax(t))}`;
   return t.title?.trim() ? `${base}\n${t.title.trim()}` : base;
 }
@@ -72,7 +72,8 @@ export function partHeader(p: Part, s?: Structure, path: number[] = []): string 
     return hasPts(p.label) ? name : name ? `${name} (${pointsLabel(max)})` : `(${pointsLabel(max)})`;
   }
   const pts = s?.headerStyle === 'short' ? `${max} балл` : pointsLabel(max);
-  const num = s?.partNumbering && path.length > 1 ? `${pathNum(path)}\n` : '';
+  const alone = s && path.length > 1 && ((nodeAt(s, path.slice(0, -1)) as Task | Part | undefined)?.parts?.length ?? 0) === 1;
+  const num = s?.partNumbering && path.length > 1 && !alone ? `${pathNum(path)}\n` : '';
   if (hasPts(p.label)) return `${num}${p.label!.trim()}`;
   return p.label?.trim() ? `${num}${p.label.trim()}\n${pts}` : `${num}${pts}`;
 }
@@ -96,7 +97,8 @@ export function bandRanges(max: number, k: number): { lo: number; hi: number }[]
   if (k <= 1 || max <= 0) return [{ lo: 0, hi: max }];
   const out: { lo: number; hi: number }[] = [];
   let lo = 0;
-  for (let i = 1; i <= k; i++) { const hi = i === k ? max : Math.floor((max * i) / k); out.push({ lo, hi: Math.max(hi, lo) }); lo = hi + 1; }
+  const n = max + 1;
+  for (let i = 0; i < k; i++) { const size = Math.floor(n / k) + (i < n % k ? 1 : 0); const hi = i === k - 1 ? max : Math.min(max, lo + size - 1); out.push({ lo, hi: Math.max(hi, lo) }); lo = hi + 1; }
   return out;
 }
 export const bandLabel = (b: { lo: number; hi: number }): string => `${b.lo}-${b.hi} балл`;
@@ -183,7 +185,7 @@ export function structureFromText(text: string, prev?: Structure): Structure | n
   s.bands = prev.bands; s.headerStyle = prev.headerStyle; s.partNumbering = prev.partNumbering;
   const copyParts = (dst: Part[] | undefined, src: Part[] | undefined) => {
     if (!dst || !src) return;
-    dst.forEach((d, j) => { const o = src[j]; if (!o) return; d.label = o.label ?? ''; d.target = o.target; d.bands = o.bands; copyParts(d.parts, o.parts); });
+    dst.forEach((d, j) => { const o = src[j]; if (!o) return; d.label = o.label ?? ''; d.target = o.target; d.bands = o.bands; d.fixed = o.fixed; copyParts(d.parts, o.parts); });
   };
   s.tasks.forEach((t, i) => {
     const p = prev.tasks[i];
@@ -195,7 +197,7 @@ export function structureFromText(text: string, prev?: Structure): Structure | n
 }
 
 export function cloneStructure(s: Structure): Structure {
-  const cp = (p: Part): Part => ({ label: p.label ?? '', max: p.max, target: p.target, bands: p.bands, ...(p.parts?.length ? { parts: p.parts.map(cp) } : {}) });
+  const cp = (p: Part): Part => ({ label: p.label ?? '', max: p.max, target: p.target, bands: p.bands, ...(p.fixed != null ? { fixed: p.fixed } : {}), ...(p.parts?.length ? { parts: p.parts.map(cp) } : {}) });
   return {
     bands: s.bands, headerStyle: s.headerStyle, partNumbering: s.partNumbering,
     tasks: s.tasks.map((t) => ({ title: t.title ?? '', max: t.max, target: t.target, bands: t.bands, parts: t.parts.map(cp) })),
@@ -226,7 +228,17 @@ export const BUILTIN_PRESETS: { name: string; text: string }[] = [
 ];
 
 export function builtinPresets(): Preset[] {
-  return BUILTIN_PRESETS.map((p) => ({ id: newPresetId(), name: p.name, structure: parseStructure(p.text)! }));
+  return [...BUILTIN_PRESETS.map((p) => ({ id: newPresetId(), name: p.name, structure: parseStructure(p.text)! })), technologyPreset()];
+}
+
+/** Технология — форма с уровнями: 1.1 (5, у всех 5), 2 зад (2.1 5, 2.2 10, 2.3 10, 2.4 5), 3 зад (5, у всех 5). */
+export const TECH_NAME = 'Технология — форма с уровнями';
+export function technologyPreset(): Preset {
+  const one = (title: string): Task => ({ title, max: 5, parts: [{ label: '', max: 5, fixed: 5 }] });
+  return {
+    id: newPresetId(), name: TECH_NAME,
+    structure: { tasks: [one('1.1'), { title: '', max: 30, parts: [5, 10, 10, 5].map((m) => ({ label: '', max: m })) }, one('3 зад')], bands: 3, headerStyle: 'short', partNumbering: true },
+  };
 }
 
 /** Совместимость: старый список шаблонов для выпадающего списка. */
