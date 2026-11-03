@@ -11,7 +11,7 @@ import type { RecognizeResult } from './vision/recognize.ts'; // только т
 import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
 import { initVoice } from './voice/voice.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
-import type { ClassReport, JournalClass, Part, Preset, ReportRow, Settings, Structure, Task } from './core/types.ts';
+import type { ClassReport, JournalClass, Kind, Part, Preset, ReportRow, Settings, Structure, Task } from './core/types.ts';
 
 /* ---------- состояние ---------- */
 
@@ -73,7 +73,7 @@ function saveSettings(): void {
   try { localStorage.setItem(LS, JSON.stringify(state.settings)); } catch { /* ignore */ }
 }
 
-const state = { classes: [] as ClassState[], settings: loadSettings(), active: 0, editGrade: '', ladderFull: false };
+const state = { all: [] as ClassState[], classes: [] as ClassState[], settings: loadSettings(), active: 0, editGrade: '', ladderFull: false };
 
 /* ---------- утилиты ---------- */
 
@@ -132,7 +132,10 @@ function migrateLadders(s: Settings): void {
 function rebuild(index?: number): void {
   state.classes.forEach((cs, i) => {
     if (index != null && i !== index) return;
-    cs.report = cs.cls.assessments.length ? buildReport(cs.cls, S(), structureFor(cs), ladderFor(structureTextFor(cs)).rows) : null;
+    const k = kindOf(cs), s = S();
+    const sk: Settings = k === s.kind ? s : { ...s, kind: k, number: k === 'СОЧ' ? cs.cls.quarter ?? s.number : s.number };
+    cs.report = cs.cls.assessments.length ? buildReport(cs.cls, sk, structureFor(cs), ladderFor(structureTextFor(cs)).rows) : null;
+    if (cs.report && s.make === 'both' && cs.cls.reportKind) cs.report.sheetName = `${cs.report.sheetName} ${k}`;
   });
 }
 
@@ -162,7 +165,38 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   if (errors.length) alert(errors.join('\n'));
 }
 
+/** Последняя колонка вида с баллами (или просто последняя этого вида). */
+function lastOf(cls: JournalClass, kind: Kind): string | undefined {
+  const xs = cls.assessments.filter((a) => a.kind === kind);
+  return (xs.filter((a) => a.scores.some((x) => x != null)).at(-1) ?? xs.at(-1))?.id;
+}
+const kindOf = (cs: ClassState): Kind => cs.cls.reportKind ?? (S().make === 'СОЧ' ? 'СОЧ' : 'СОР');
+const has = (cls: JournalClass, kind: Kind) => cls.assessments.some((a) => a.kind === kind);
+/** Какие записи видны: «СОР», «СОЧ» или обе. */
+function applyMake(): void {
+  const m = S().make ?? 'СОР';
+  const cur = state.classes[state.active];
+  state.classes = state.all.filter((cs) => m === 'both' || !cs.cls.reportKind || cs.cls.reportKind === m);
+  const i = cur ? state.classes.indexOf(cur) : -1;
+  state.active = i >= 0 ? i : 0;
+}
+
+/** Журнал с колонками СОР и СОЧ → две записи класса: у каждой своя колонка, разбаловка и ручные баллы. */
 function addClass(cls: JournalClass): void {
+  const sor = has(cls, 'СОР'), soch = has(cls, 'СОЧ');
+  if (!cls.structure && sor && soch) {
+    const twin: JournalClass = { ...cls, students: cls.students.map((st) => ({ n: st.n, name: st.name, id: st.id })), assessments: cls.assessments.map((a) => ({ ...a, scores: a.scores.slice() })), reportKind: 'СОЧ', selectedAssessment: lastOf(cls, 'СОЧ') };
+    cls.reportKind = 'СОР'; cls.selectedAssessment = lastOf(cls, 'СОР');
+    addOne(cls); addOne(twin);
+  } else {
+    if (cls.assessments.length && cls.assessments.every((a) => a.kind === 'СОЧ')) cls.reportKind = 'СОЧ';
+    else if (cls.assessments.some((a) => a.col >= 0)) cls.reportKind = 'СОР';
+    addOne(cls);
+  }
+  applyMake();
+}
+
+function addOne(cls: JournalClass): void {
   const s = S();
   if (!s.teacherShort && cls.teacher) { s.teacherShort = shortTeacherName(cls.teacher); ($('s-teacher') as HTMLInputElement).value = s.teacherShort; }
   if (cls.year && s.year !== cls.year) { s.year = cls.year; ($('s-year') as HTMLInputElement).value = s.year; }
@@ -173,13 +207,20 @@ function addClass(cls: JournalClass): void {
     const key = structureToText(cls.structure) + '|' + cls.structure.tasks.map((t) => t.title).join('/') + '|' + (cls.structure.headerStyle ?? '');
     let p = s.presets.find((x) => structureToText(x.structure) + '|' + x.structure.tasks.map((t) => t.title).join('/') + '|' + (x.structure.headerStyle ?? '') === key);
     if (!p) { p = { id: newPresetId(), name: `${cls.className}${cls.group === 'девочки' ? ' (девочки)' : ''} — из отчёта`, structure: cloneStructure(cls.structure) }; s.presets.push(p); saveSettings(); }
-    state.classes.push({ cls, presetId: p.id, report: null });
+    state.all.push({ cls, presetId: p.id, report: null });
     return;
   }
   // подобрать пресет по номеру класса («5 класс — …»)
   const grade = cls.className.match(/^\d+/)?.[0];
+  if (cls.reportKind === 'СОЧ') { // для СОЧ — разбаловка с тем же максимумом («СОЧ 40»), лучше своей параллели
+    const am = cls.assessments.find((a) => a.id === cls.selectedAssessment)?.max ?? 40;
+    const fit = s.presets.filter((p) => structureMax(p.structure) === am);
+    const p = fit.find((x) => grade && new RegExp(`^${grade}\\s*класс`, 'i').test(x.name) && /СОЧ/i.test(x.name)) ?? fit.find((x) => /СОЧ/i.test(x.name)) ?? fit[0];
+    state.all.push({ cls, presetId: p && p.id !== s.presetId ? p.id : '', report: null });
+    return;
+  }
   const auto = grade ? s.presets.find((p) => new RegExp(`^${grade}\\s*класс`, 'i').test(p.name)) : undefined;
-  state.classes.push({ cls, presetId: auto && auto.id !== s.presetId ? auto.id : '', report: null });
+  state.all.push({ cls, presetId: auto && auto.id !== s.presetId ? auto.id : '', report: null });
 }
 
 /* ---------- рендер: список классов ---------- */
@@ -196,7 +237,8 @@ function renderGrades(): void {
   const grades = [...new Set(state.classes.map((cs) => cs.cls.className.match(/^\d+/)?.[0]).filter((g): g is string => !!g))].sort((a, b) => Number(a) - Number(b));
   if (grades.length < 1 || state.classes.length < 2) { box.innerHTML = ''; return; }
   box.innerHTML = grades.map((g) => {
-    const members = state.classes.filter((cs) => cs.cls.className.startsWith(g + '-') || cs.cls.className === g);
+    const members = gradeClasses(g);
+    if (!members.length) return '';
     const ids = new Set(members.map((cs) => cs.presetId));
     const cur = ids.size === 1 ? [...ids][0] : '';
     return `<div class="grade" data-g="${g}"><b>${g}-е классы</b><span class="muted">(${members.map((m) => m.cls.className).join(', ')})</span>
@@ -211,7 +253,8 @@ function renderClasses(): void {
   box.innerHTML = state.classes.map((cs, i) => {
     const c = cs.cls;
     const sel = c.selectedAssessment;
-    const opts = c.assessments.map((a) => {
+    const own = c.reportKind ? c.assessments.filter((a) => a.kind === c.reportKind) : c.assessments;
+    const opts = (own.length ? own : c.assessments).map((a) => {
       const have = a.scores.filter((x) => x != null).length;
       return `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${a.kind} №${a.ordinal}${a.date ? ' · ' + a.date : ''} · макс ${a.max} · баллов ${have}/${a.scores.length}</option>`;
     }).join('');
@@ -219,7 +262,8 @@ function renderClasses(): void {
     const am = selectedMax(c);
     const warn = am != null && sm !== am ? `<div class="warn">Сумма разбаловки ${sm} ≠ максимуму работы в журнале ${am}. Выберите другую разбаловку для этого класса или поправьте её.</div>` : '';
     return `<div class="cls" data-i="${i}">
-      <div><span class="name">${h(c.className)}${c.group ? ' · ' + h(c.group) : ''}</span>
+      <div><span class="name">${h(c.className)}${c.group ? ' · ' + h(c.group) : ''}${c.reportKind ? ` · <span class="kind k-${c.reportKind === 'СОЧ' ? 'soch' : 'sor'}">${c.reportKind}</span>` : ''}</span>
+        ${kindBadges(c)}
         <div class="meta">${h(c.subject ?? '')}${c.quarter ? ' · ' + c.quarter + ' четверть' : ''} · учеников: ${c.students.length} · ${h(c.source)}</div></div>
       <button class="btn small ghost" data-act="remove" title="Убрать класс">✕</button>
       <div class="ctl">
@@ -231,10 +275,26 @@ function renderClasses(): void {
   }).join('');
 }
 
+/** «В журнале: СОР ✓ 07.10 · СОЧ ✓ 23.10» или «СОЧ — нет». */
+function kindBadges(c: JournalClass): string {
+  if (!c.assessments.some((a) => a.col >= 0)) return '';
+  const one = (k: Kind) => {
+    const xs = c.assessments.filter((a) => a.kind === k);
+    if (!xs.length) return `<span class="kb no">${k} — нет в журнале</span>`;
+    const filled = xs.filter((a) => a.scores.some((x) => x != null));
+    const a = filled.at(-1) ?? xs.at(-1)!;
+    return `<span class="kb ${filled.length ? 'yes' : 'empty'}">${k} ${filled.length ? '✓' : '— без баллов'}${a.date ? ' ' + h(a.date) : ''} · макс ${a.max}</span>`;
+  };
+  return `<div class="kbs">В журнале: ${one('СОР')} ${one('СОЧ')}</div>`;
+}
+
 /* ---------- рендер: пресеты и редактор структуры ---------- */
 
 /** Классы параллели («6» → все 6-е). */
-function gradeClasses(g: string): ClassState[] { return state.classes.filter((cs) => cs.cls.className.startsWith(g + '-') || cs.cls.className === g); }
+function gradeClasses(g: string): ClassState[] {
+  const cur = state.classes[state.active], k = cur ? kindOf(cur) : 'СОР';
+  return state.classes.filter((cs) => (cs.cls.className.startsWith(g + '-') || cs.cls.className === g) && kindOf(cs) === k);
+}
 function gradesList(): string[] {
   return [...new Set(state.classes.map((cs) => cs.cls.className.match(/^\d+/)?.[0]).filter((g): g is string => !!g))].sort((a, b) => Number(a) - Number(b));
 }
@@ -506,7 +566,7 @@ function onLadderEdit(input: HTMLInputElement): void {
 
 function renderTabs(): void {
   $('tabs').innerHTML = state.classes.map((cs, i) =>
-    `<button class="tab ${i === state.active ? 'active' : ''}" data-i="${i}">${h(cs.cls.className)}${cs.cls.group === 'девочки' ? ' Д' : ''}</button>`).join('');
+    `<button class="tab ${i === state.active ? 'active' : ''}" data-i="${i}">${h(cs.cls.className)}${cs.cls.group === 'девочки' ? ' Д' : ''}${S().make === 'both' && cs.cls.reportKind ? ` <small>${cs.cls.reportKind}</small>` : ''}</button>`).join('');
 }
 
 function renderFootInto(el: HTMLElement, r: ClassReport): void {
@@ -803,7 +863,7 @@ function bindSettings(): void {
     const el = $(id) as HTMLInputElement;
     if (typeof v === 'boolean') el.checked = v; else el.value = String(v);
   };
-  set('s-school', s.school); set('s-kind', s.kind); set('s-number', s.number); set('s-teacher', s.teacherShort);
+  set('s-school', s.school); set('s-kind', s.make ?? s.kind); set('s-number', s.number); set('s-teacher', s.teacherShort);
   set('s-year', s.year); set('s-strategy', s.strategy); set('s-seed', s.seed); set('s-spread', s.spread ?? 1);
   set('s-t5', Math.round(s.thresholds.five * 100)); set('s-t4', Math.round(s.thresholds.four * 100)); set('s-t3', Math.round(s.thresholds.three * 100));
   set('s-absent', s.includeAbsent); set('s-absentcols', s.absentColumns); set('s-dates', s.showDates); set('s-charttotal', s.chartIncludeTotal);
@@ -827,7 +887,7 @@ function bindSettings(): void {
   const apply = () => {
     const v = (id: string) => ($(id) as HTMLInputElement).value;
     const b = (id: string) => ($(id) as HTMLInputElement).checked;
-    s.school = v('s-school').trim(); s.kind = v('s-kind') as Settings['kind']; s.number = Math.max(1, Number(v('s-number')) || 1);
+    s.school = v('s-school').trim(); const mk = v('s-kind') as Kind | 'both'; const mkChanged = mk !== (s.make ?? s.kind); s.make = mk; s.kind = mk === 'СОЧ' ? 'СОЧ' : 'СОР'; if (mkChanged) applyMake(); s.number = Math.max(1, Number(v('s-number')) || 1);
     s.teacherShort = v('s-teacher').trim(); s.year = v('s-year').trim();
     s.strategy = v('s-strategy') as Settings['strategy']; s.seed = Number(v('s-seed')) || 0; s.spread = Math.max(0, Math.min(5, Number(v('s-spread')) || 0));
     s.thresholds = { five: Number(v('s-t5')) / 100, four: Number(v('s-t4')) / 100, three: Number(v('s-t3')) / 100 };
@@ -1060,7 +1120,7 @@ function bindEvents(): void {
     }
     const b = (e.target as HTMLElement).closest('[data-act="remove"]'); if (!b) return;
     const i = Number(b.closest('.cls')?.getAttribute('data-i'));
-    state.classes.splice(i, 1); state.active = Math.min(state.active, Math.max(0, state.classes.length - 1)); render();
+    const gone = state.classes.splice(i, 1)[0]; state.all = state.all.filter((x) => x !== gone); state.active = Math.min(state.active, Math.max(0, state.classes.length - 1)); render();
   });
 
   $('m-add').addEventListener('click', () => {

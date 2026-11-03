@@ -38,6 +38,7 @@ export interface JournalClass {
   students: Student[];
   assessments: AssessmentColumn[];
   selectedAssessment?: string; // id выбранной колонки
+  reportKind?: Kind;           // запись класса для отчёта СОР или СОЧ (журнал с обеими колонками — две записи)
   dateHeld?: string;    // дата проведения (дд.мм.гггг), введена вручную
   dateEntered?: string; // дата внесения в emaktab
   structure?: Structure; // разбаловка из загруженного готового отчёта
@@ -90,6 +91,7 @@ export interface Settings {
   layout: ReportLayout;
   /** Режим: раскидка общего балла из журнала или бумажные работы (баллы по критериям голосом/вручную). */
   workMode: 'dist' | 'paper';
+  make?: Kind | 'both';        // какие отчёты делать: СОР, СОЧ или оба
   /** Устарело (полные лестницы); переносится в ladderRows при загрузке. */
   ladders: Record<string, number[][]>;
   /** Строки раскладки, заданные учителем: ключ — текст разбаловки, внутри — «общий балл» → баллы по колонкам. */
