@@ -45,9 +45,12 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
   const a = cls.assessments.find((x) => x.id === cls.selectedAssessment) ?? cls.assessments[0];
   const columns = flattenColumns(structure);
   const maxes = columns.map((c) => c.max);
-  const max = maxes.reduce((x, y) => x + y, 0);
+  const max = r2(maxes.reduce((x, y) => x + y, 0));
+  // дробные баллы (2,5; 7,5): раскидка считается в долях балла (½, ¼ …) и делится обратно
+  const k = unitOf([...maxes, ...columns.map((c) => c.fixed ?? 0), ...(a?.scores ?? []).map((v) => v ?? 0), ...cls.students.map((st) => st.manualScore ?? 0)]);
+  const mI = maxes.map((m) => Math.round(m * k));
   const rowsOf = s.strategy === 'ladder'
-    ? (ladderFits(ladder, maxes) ? ladder : generateLadder(maxes))
+    ? (k === 1 && ladderFits(ladder, maxes) ? ladder : generateLadder(mI))
     : undefined;
   const ladders = new Map<string, Ladder>();
   const ladderOf = (mx: number[]): Ladder => { const k = mx.join(','); if (!ladders.has(k)) ladders.set(k, generateLadder(mx)); return ladders.get(k)!; };
@@ -56,8 +59,9 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
   let n = 0;
   cls.students.forEach((st, i) => {
     const raw = st.manualScores && st.manualScores.length === maxes.length && st.manualScores.some((v) => v != null)
-      ? st.manualScores.map((v, k) => (v == null ? null : Math.max(0, Math.min(maxes[k], Math.round(v) || 0)))) : null;
+      ? st.manualScores.map((v, k) => (v == null ? null : Math.max(0, Math.min(maxes[k], r2(v) || 0)))) : null;
     const own = raw ? raw.map((v) => v ?? 0) : null;
+    const kk = k; // доли балла (k — индекс колонки в map ниже)
     const paper = s.workMode === 'paper';
     const fromJournal = a?.scores[i] ?? null; // общий балл из файла журнала (в бумажном режиме — тоже)
     const score = st.forceAbsent ? null : own ? own.reduce((x, y) => x + y, 0) : st.manualScore ?? fromJournal;
@@ -73,22 +77,26 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
       return;
     }
     const rng = makeRng((s.seed ^ hash(st.name)) >>> 0);
-    const t = Math.max(0, Math.min(max, Math.round(score)));
-    const fx = columns.map((c) => (c.fixed != null ? Math.max(0, Math.min(c.max, c.fixed)) : null));
+    const t = Math.max(0, Math.min(Math.round(max * kk), Math.round(score * kk))); // в долях балла
+    const fx = columns.map((c) => (c.fixed != null ? Math.round(Math.max(0, Math.min(c.max, c.fixed)) * kk) : null));
     const fixedSum = fx.reduce<number>((a, b) => a + (b ?? 0), 0);
     const split = (tt: number, mx: number[], tg: (number | undefined)[]) => s.strategy === 'ladder' ? (ladderOf(mx)[tt] ?? mx.map(() => 0)).slice()
       : s.strategy === 'targets' ? distributeTargets(tt, mx, tg, rng, s.spread ?? 1) : distribute(tt, mx, s.strategy, rng);
     let scores: number[];
     if (own) scores = own;
-    else if (fixedSum && fx.some((v) => v == null) && t >= fixedSum) { // «у всех одинаково»: остальное — по другим критериям
-      const free = columns.map((_, k) => k).filter((k) => fx[k] == null);
-      const part = split(Math.min(t - fixedSum, free.reduce((a, k) => a + maxes[k], 0)), free.map((k) => maxes[k]), free.map((k) => columns[k].target));
-      scores = columns.map((_, k) => fx[k] ?? part[free.indexOf(k)]);
-    } else scores = rowsOf?.[t] ? rowsOf[t].slice()
-      : s.strategy === 'targets' ? distributeTargets(score, maxes, columns.map((c) => c.target), rng, s.spread ?? 1)
-      : distribute(score, maxes, s.strategy === 'ladder' ? 'largest' : s.strategy, rng);
+    else {
+      let si: number[];
+      if (fixedSum && fx.some((v) => v == null) && t >= fixedSum) { // «у всех одинаково»: остальное — по другим критериям
+        const free = columns.map((_, k) => k).filter((k) => fx[k] == null);
+        const part = split(Math.min(t - fixedSum, free.reduce((a, k) => a + mI[k], 0)), free.map((k) => mI[k]), free.map((k) => columns[k].target));
+        si = columns.map((_, k) => fx[k] ?? part[free.indexOf(k)]);
+      } else si = rowsOf?.[t] ? rowsOf[t].slice()
+        : s.strategy === 'targets' ? distributeTargets(t, mI, columns.map((c) => c.target), rng, s.spread ?? 1)
+        : distribute(t, mI, s.strategy === 'ladder' ? 'largest' : s.strategy, rng);
+      scores = si.map((v) => r2(v / kk));
+    }
     const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i, manual: !!own, raw: raw ?? undefined, incomplete: !!raw && raw.some((v) => v == null) };
-    if (paper && fromJournal != null) { row.journalTotal = Math.round(fromJournal); row.fromJournal = !own && st.manualScore == null; }
+    if (paper && fromJournal != null) { row.journalTotal = r2(fromJournal); row.fromJournal = !own && st.manualScore == null; }
     recalcRow(row, max, s.thresholds);
     rows.push(row);
   });
@@ -116,8 +124,16 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
   return report;
 }
 
+/** Округление до сотых (дробные баллы без «7.499999»). */
+export const r2 = (v: number): number => Math.round(v * 100) / 100;
+/** Наименьшая доля балла, в которой все числа целые: 1, ½, ¼, 0,1 … */
+export function unitOf(xs: number[]): number {
+  for (const k of [1, 2, 4, 10, 20, 100]) if (xs.every((x) => Math.abs(x * k - Math.round(x * k)) < 1e-6)) return k;
+  return 100;
+}
+
 export function recalcRow(row: ReportRow, max: number, th: Settings['thresholds']): void {
-  row.total = row.scores.reduce((x, y) => x + y, 0);
+  row.total = r2(row.scores.reduce((x, y) => x + y, 0));
   row.percent = max ? row.total / max : 0;
   row.grade = gradeFor(row.percent, th);
 }

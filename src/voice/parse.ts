@@ -72,14 +72,15 @@ export function normalize(text: string): string {
 
 /** Разбор фразы на числа, слова и команды. */
 export function parsePhrase(input: string): Parsed {
-  const text = normalize(input);
+  const text = normalize(input.replace(/(\d)[,.](5)(?!\d)/g, '$1 с половиной')); // «7,5» → 7 с половиной (запятая иначе делит числа)
   const tokens = text.replace(/(\d)-(\d)/g, '$1 $2').replace(/-/g, ' ').split(' ').filter(Boolean);
   const nums: NumTok[] = [];
   const words: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (/^\d+$/.test(t)) { nums.push({ value: Number(t), raw: t }); continue; }
-    if (/^\d+[,.]\d+$/.test(t)) { nums.push({ value: Math.round(Number(t.replace(',', '.'))), raw: t }); continue; }
+    if (/^\d+[,.]\d+$/.test(t)) { nums.push({ value: Number(t.replace(',', '.')), raw: t }); continue; }
+    if (/^(половиной|половина|пол|ярим|yarim)$/.test(t) && nums.length) { const l = nums[nums.length - 1]; l.value += 0.5; l.raw += ' с половиной'; continue; } // «семь с половиной» = 7,5
     if (t in TENS) {
       const nx = tokens[i + 1];
       if (nx && nx in UNITS && UNITS[nx] > 0) { nums.push({ value: TENS[t] + UNITS[nx], raw: `${t} ${nx}` }); i++; }

@@ -3,15 +3,17 @@ import type { Structure, Task, Part, ScoreColumn, Preset, HeaderStyle } from './
 /* ---------- баллы ---------- */
 
 /** Баллы критерия: у группы — сумма подкритериев. */
+/** Сумма дробных баллов без «40.0000001». */
+const rnd = (v: number) => Math.round(v * 100) / 100;
 export function partMax(p: Part): number {
-  return p.parts?.length ? p.parts.reduce((a, c) => a + partMax(c), 0) : p.max;
+  return p.parts?.length ? rnd(p.parts.reduce((a, c) => a + partMax(c), 0)) : p.max;
 }
 export function taskMax(t: Task): number {
-  return t.parts.length ? t.parts.reduce((a, p) => a + partMax(p), 0) : t.max;
+  return t.parts.length ? rnd(t.parts.reduce((a, p) => a + partMax(p), 0)) : t.max;
 }
 /** Сумма максимумов всех заданий. */
 export function structureMax(s: Structure): number {
-  return s.tasks.reduce((a, t) => a + taskMax(t), 0);
+  return rnd(s.tasks.reduce((a, t) => a + taskMax(t), 0));
 }
 
 /** Узел по пути [задание, критерий, подкритерий…]. */
@@ -97,7 +99,7 @@ export function bandRanges(max: number, k: number): { lo: number; hi: number }[]
   if (k <= 1 || max <= 0) return [{ lo: 0, hi: max }];
   const out: { lo: number; hi: number }[] = [];
   let lo = 0;
-  const n = max + 1;
+  const n = Math.floor(max) + 1;
   for (let i = 0; i < k; i++) { const size = Math.floor(n / k) + (i < n % k ? 1 : 0); const hi = i === k - 1 ? max : Math.min(max, lo + size - 1); out.push({ lo, hi: Math.max(hi, lo) }); lo = hi + 1; }
   return out;
 }
@@ -105,7 +107,7 @@ export const bandLabel = (b: { lo: number; hi: number }): string => `${b.lo}-${b
 /** В какой уровень попадает балл. */
 export function bandIndex(value: number, max: number, k: number): number {
   const bs = bandRanges(max, k);
-  const i = bs.findIndex((b) => value >= b.lo && value <= b.hi);
+  const i = bs.findIndex((b, j) => value >= b.lo && value < (bs[j + 1]?.lo ?? Infinity)); // 3,5 → уровень «0-3»
   return i < 0 ? bs.length - 1 : i;
 }
 

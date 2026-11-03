@@ -410,11 +410,11 @@ function renderPart(p: Part, path: number[]): string {
   }
   return `<div class="part-cell" data-path="${ps}">
     <span class="pnum">${pathNum(path)}</span>
-    <input type="number" data-f="pmax" min="0" value="${p.max}" title="Баллы критерия ${pathNum(path)} (Enter — следующий критерий)" />
+    <input type="number" step="any" data-f="pmax" min="0" value="${p.max}" title="Баллы критерия ${pathNum(path)} (Enter — следующий критерий)" />
     <button class="x" type="button" data-act="del-part" title="Убрать критерий">✕</button>
     <input type="text" data-f="plabel" value="${h(p.label ?? '')}" placeholder="название" title="Название критерия в шапке" />
     <input type="number" data-f="ptarget" min="0" max="100" value="${p.target ?? ''}" placeholder="цель %" title="Целевой % для раскидки «по целям»" />
-    ${p.parts?.length ? '' : `<input type="number" data-f="pfixed" min="0" max="${p.max}" value="${p.fixed ?? ''}" placeholder="у всех" title="Одинаковый балл у всех учеников (например, ${p.max}) — раскидываются только остальные критерии. Пусто — как обычно" />`}
+    ${p.parts?.length ? '' : `<input type="number" step="any" data-f="pfixed" min="0" max="${p.max}" value="${p.fixed ?? ''}" placeholder="у всех" title="Одинаковый балл у всех учеников (например, ${p.max}) — раскидываются только остальные критерии. Пусто — как обычно" />`}
     <select data-f="pbands" title="Уровни под этим критерием">${bandOpts(p.bands)}</select>
     <button class="mini tiny" type="button" data-act="add-sub" title="Разделить на подкритерии (критерий в критерии)">＋ под</button>
   </div>`;
@@ -429,7 +429,7 @@ function renderStructureEditor(): void {
       <td class="n">${ti + 1}</td>
       <td class="ttl"><input type="text" data-f="title" value="${h(t.title ?? '')}" placeholder="название в шапке (необязательно)" /></td>
       <td class="parts-cell"><div class="parts">${parts}<button class="mini" type="button" data-act="add-part" title="Добавить критерий">＋ критерий</button></div></td>
-      <td class="n">${t.parts.length ? `<b data-k="tsum">${taskMax(t)}</b>` : `<input type="number" data-f="tmax" min="0" value="${t.max}" title="Баллы задания" />`}</td>
+      <td class="n">${t.parts.length ? `<b data-k="tsum">${taskMax(t)}</b>` : `<input type="number" step="any" data-f="tmax" min="0" value="${t.max}" title="Баллы задания" />`}</td>
       <td class="n">${t.parts.length ? '' : `<input type="number" data-f="ttarget" min="0" max="100" value="${t.target ?? ''}" placeholder="100" title="Целевой %" />`}</td>
       <td class="n">${t.parts.length ? '' : `<select data-f="tbands" title="Уровни под этим заданием">${bandOpts(t.bands)}</select>`}</td>
       <td class="ops"><button class="mini" type="button" data-act="up" ${ti === 0 ? 'disabled' : ''} title="Выше">↑</button><button class="mini" type="button" data-act="down" ${ti === s.tasks.length - 1 ? 'disabled' : ''} title="Ниже">↓</button><button class="mini danger" type="button" data-act="del-task" ${s.tasks.length <= 1 ? 'disabled' : ''} title="Удалить задание">✕</button></td>
@@ -455,7 +455,7 @@ function onStructInput(t: HTMLInputElement): void {
   const ti = Number(tr.dataset.t);
   const task = st.tasks[ti]; if (!task) return;
   const f = t.dataset.f;
-  const num = (v: string) => Math.max(0, Math.round(Number(v)) || 0);
+  const num = (v: string) => Math.max(0, Math.round(Number(String(v).replace(',', '.')) * 100) / 100 || 0); // 7,5 — можно дробные
   const pctv = (v: string) => (v.trim() === '' ? undefined : Math.min(100, Math.max(0, Number(v) || 0)));
   const bandsV = (v: string) => (v === '' ? undefined : Math.max(0, Number(v) || 0));
   if (f === 'title') task.title = t.value;
@@ -705,18 +705,18 @@ function renderPreview(): void {
   const body = r.rows.map((row, ri) => {
     if (row.absent && !row.pending) {
       const who = r.group === 'девочки' ? 'отсутствовала' : 'отсутствовал';
-      return `<tr class="abs" data-r="${ri}" data-s="${row.studentIndex}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}<td colspan="${physTotal + 3}">${who} · балл вручную: <input type="number" min="0" max="${r.max}" data-act="manual" data-s="${row.studentIndex}" placeholder="—" /></td>${del(row)}</tr>`;
+      return `<tr class="abs" data-r="${ri}" data-s="${row.studentIndex}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}<td colspan="${physTotal + 3}">${who} · балл вручную: <input type="number" step="any" min="0" max="${r.max}" data-act="manual" data-s="${row.studentIndex}" placeholder="—" /></td>${del(row)}</tr>`;
     }
     const cells = row.scores.map((v, ci) => {
       const shown = row.raw ? row.raw[ci] : v;
-      const inp = `<input type="number" inputmode="numeric" min="0" max="${r.columns[ci].max}" value="${shown ?? ''}" placeholder="${row.pending || row.raw ? '·' : ''}" data-r="${ri}" data-c="${ci}" />`;
+      const inp = `<input type="number" step="any" inputmode="decimal" min="0" max="${r.columns[ci].max}" value="${shown ?? ''}" placeholder="${row.pending || row.raw ? '·' : ''}" data-r="${ri}" data-c="${ci}" />`;
       const kc = ks[ci];
       if (kc <= 1) return `<td>${inp}</td>`;
       if (shown == null) return Array.from({ length: kc }, (_, j) => (j === 0 ? `<td class="band">${inp}</td>` : '<td class="band"></td>')).join('');
       const bi = bandIndex(v, r.columns[ci].max, kc);
       return Array.from({ length: kc }, (_, j) => (j === bi ? `<td class="band">${inp}</td>` : '<td class="band"></td>')).join('');
     }).join('');
-    return `<tr data-r="${ri}" data-s="${row.studentIndex}" class="${row.reason ? 'retake' : ''} ${row.manual ? 'manual' : ''} ${row.pending ? 'pending' : ''} ${row.incomplete ? 'incomplete' : ''} ${row.fromJournal ? 'journal' : ''} ${rowDiff(row) ? 'diff' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total" title="${totalTip(row) || 'Общий балл можно исправить — критерии разложатся заново'}"><input type="number" inputmode="numeric" min="0" max="${r.max}" data-act="total" data-s="${row.studentIndex}" value="${row.pending ? '' : row.total}" placeholder="·" /></td><td data-k="pct">${row.pending ? '' : pct(row.percent)}</td><td data-k="grade" title="Оценку можно исправить — общий балл подстроится под неё"><input type="number" inputmode="numeric" min="2" max="5" data-act="grade" data-s="${row.studentIndex}" value="${row.pending ? '' : row.grade}" /></td>${del(row)}</tr>`;
+    return `<tr data-r="${ri}" data-s="${row.studentIndex}" class="${row.reason ? 'retake' : ''} ${row.manual ? 'manual' : ''} ${row.pending ? 'pending' : ''} ${row.incomplete ? 'incomplete' : ''} ${row.fromJournal ? 'journal' : ''} ${rowDiff(row) ? 'diff' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total" title="${totalTip(row) || 'Общий балл можно исправить — критерии разложатся заново'}"><input type="number" step="any" inputmode="decimal" min="0" max="${r.max}" data-act="total" data-s="${row.studentIndex}" value="${row.pending ? '' : row.total}" placeholder="·" /></td><td data-k="pct">${row.pending ? '' : pct(row.percent)}</td><td data-k="grade" title="Оценку можно исправить — общий балл подстроится под неё"><input type="number" step="any" inputmode="decimal" min="2" max="5" data-act="grade" data-s="${row.studentIndex}" value="${row.pending ? '' : row.grade}" /></td>${del(row)}</tr>`;
   }).join('');
   const footEl = document.createElement('tfoot');
   renderFootInto(footEl, r);
@@ -751,7 +751,7 @@ function onScoreEdit(input: HTMLInputElement): void {
   if (!st) return;
   const max = r.columns[ci].max;
   const empty = input.value.trim() === '';
-  let v = Math.round(Number(input.value));
+  let v = Math.round(Number(input.value.replace(',', '.')) * 100) / 100; // 2,5 — можно
   if (!Number.isFinite(v)) v = 0;
   const bad = !empty && (v < 0 || v > max);
   input.classList.toggle('bad', bad);
@@ -1014,7 +1014,7 @@ function bindSettings(): void {
     const st = cloneStructure(S().structure);
     const ti = Number((t.closest('tr.task-row') as HTMLElement).dataset.t);
     const task = st.tasks[ti]; if (!task) return;
-    const nums = t.value.split(/[+\s,;/]+/).map(Number).filter((n) => Number.isFinite(n) && n >= 0);
+    const nums = t.value.replace(/(\d),(\d)/g, '$1.$2').split(/[+\s,;/]+/).map(Number).filter((n) => Number.isFinite(n) && n >= 0); // «7,5» — дробное
     if (!nums.length) { renderStructureEditor(); return; }
     if (nums.length === 1) { task.max = nums[0]; task.parts = []; }
     else task.parts = nums.map((n, i) => ({ label: task.parts[i]?.label ?? '', target: task.parts[i]?.target, max: n }));
@@ -1210,15 +1210,15 @@ function bindEvents(): void {
     else if (act === 'manual') { const v = Number(t.value); st.manualScore = t.value.trim() === '' || !Number.isFinite(v) ? null : Math.max(0, Math.min(cs.report?.max ?? 50, v)); }
     else if (act === 'total' || act === 'grade') { // итог вручную: общий балл или оценка → критерии раскладываются заново
       const r = cs.report; if (!r) return;
-      const v = Math.round(Number(t.value));
+      const v = Math.round(Number(t.value.replace(',', '.')) * 100) / 100;
       if (t.value.trim() === '') { st.manualScore = undefined; st.manualScores = undefined; }
       else if (!Number.isFinite(v)) return;
       else if (act === 'total') { st.manualScore = Math.max(0, Math.min(r.max, v)); st.manualScores = undefined; st.forceAbsent = false; }
       else {
-        const g = Math.max(2, Math.min(5, v));
+        const g = Math.max(2, Math.min(5, Math.round(v)));
         const row = r.rows.find((x) => x.studentIndex === Number(t.dataset.s));
         const cur = row && !row.pending ? row.total : 0;
-        const fit = Array.from({ length: r.max + 1 }, (_, k) => k).filter((k) => gradeFor(r.max ? k / r.max : 0, r.thresholds) === g);
+        const fit = Array.from({ length: Math.floor(r.max * 2) + 1 }, (_, k) => k / 2).filter((k) => gradeFor(r.max ? k / r.max : 0, r.thresholds) === g);
         if (!fit.length) { renderPreview(); return; }
         // ближайший к текущему баллу, который даёт эту оценку
         st.manualScore = fit.reduce((a, b) => (Math.abs(b - cur) < Math.abs(a - cur) ? b : a));

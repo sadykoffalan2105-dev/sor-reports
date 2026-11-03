@@ -11,7 +11,8 @@ const str = (v: Cell): string => (v == null ? '' : String(v).trim());
 const num = (v: Cell): number | null => {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
   const s = str(v).replace(',', '.');
-  return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : null;
+  const t = s.replace(',', '.'); // «42,5» — дробный балл
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : null;
 };
 
 /** Прочитать файл журнала (.xls/.xlsx/.csv) — по одному классу на лист. */
