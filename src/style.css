@@ -364,6 +364,10 @@ body[data-mode="paper"] #voice-btn { background: var(--accent); color: #fff; bor
 .rep tr.pending td.name { color: var(--muted); }
 .rep tr.pending td input { border: 1px dashed #c9d1d9; background: #fff; }
 .rep tr.incomplete td { background: #fffbea; }
+.rep tr.journal td input { color: #8a94a0; font-style: italic; }
+.rep tr.journal td[data-k="total"] { color: #0b6bcb; font-weight: 600; }
+.rep tr.diff td[data-k="total"] { background: #ffe1e1; color: #b00020; font-weight: 700; }
+.diff-t { color: #b00020; }
 .rep tr.incomplete td input:placeholder-shown { border: 1px dashed #e0a800; background: #fff; }
 .vb-tag.warn { background: #6b5200; color: #ffe8a3; }
 .vb-progress { height: 6px; background: #2b3b48; border-radius: 999px; overflow: hidden; }

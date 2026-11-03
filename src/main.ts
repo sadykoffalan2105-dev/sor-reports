@@ -223,7 +223,7 @@ function renderClasses(): void {
         <div class="meta">${h(c.subject ?? '')}${c.quarter ? ' · ' + c.quarter + ' четверть' : ''} · учеников: ${c.students.length} · ${h(c.source)}</div></div>
       <button class="btn small ghost" data-act="remove" title="Убрать класс">✕</button>
       <div class="ctl">
-        <label class="only-dist">Колонка <select data-act="assess">${opts}</select></label>
+        <label>Колонка <select data-act="assess">${opts}</select></label>
         <label>Разбаловка <select data-act="preset">${presetOptions(cs.presetId, true)}</select></label>
         <label>Дата проведения <span class="row"><input type="date" data-act="dateHeld" value="${toIso(c.dateHeld)}" /><button class="btn small ghost" type="button" data-act="journal-date" title="взять дату СОР из журнала">из журнала</button></span></label>
         <label>Внесено в emaktab <input type="date" data-act="dateEntered" value="${toIso(c.dateEntered)}" /></label>
@@ -578,7 +578,8 @@ function renderPreview(): void {
   const mismatch = am != null && r.max !== am ? `<div class="mismatch">Внимание: разбаловка даёт ${r.max} баллов, а работа в журнале — на ${am}. Проценты и оценки будут неверными.</div>` : '';
   const own = cs.presetId ? presetById(cs.presetId) : undefined;
   const pend = r.rows.filter((x) => x.pending), inc = r.rows.filter((x) => x.incomplete);
-  const paperInfo = S().workMode === 'paper' ? `<div class="paper-info ${pend.length || inc.length ? 'warn' : 'ok'}">${pend.length ? `Не введено: <b>${pend.length}</b> из ${r.rows.length} — диктуйте «🎤 Голосовой ввод» или вводите в таблице (Enter — следующая клетка). Не введённые попадут в отчёт отсутствующими.` : 'Все ученики введены.'}${inc.length ? ` Не все критерии: ${inc.map((x) => h(x.name.split(' ')[0])).join(', ')}.` : ''}</div>` : '';
+  const fromJ = r.rows.filter((x) => x.fromJournal), diff = r.rows.filter(rowDiff);
+  const paperInfo = S().workMode === 'paper' ? `<div class="paper-info ${pend.length || inc.length ? 'warn' : 'ok'}">${pend.length ? `Не введено: <b>${pend.length}</b> из ${r.rows.length} — диктуйте «🎤 Голосовой ввод» или вводите в таблице (Enter — следующая клетка). Не введённые попадут в отчёт отсутствующими.` : 'Общий балл у всех есть.'}${fromJ.length ? ` Общий балл из журнала: <b>${fromJ.length}</b> — критерии пока разложены по раскладке, продиктуйте их с бумаги.` : ''}${inc.length ? ` Не все критерии: ${inc.map((x) => h(x.name.split(' ')[0])).join(', ')}.` : ''}${diff.length ? ` <b class="diff-t">Сумма критериев ≠ журналу:</b> ${diff.map((x) => `${h(x.name.split(' ')[0])} (${x.total} / ${x.journalTotal})`).join(', ')}.` : ''}</div>` : '';
   const info = paperInfo + `<div class="info">Разбаловка класса: <b>${h(own ? own.name : currentPreset().name)}</b> · ${h(structureToText(structureFor(cs)))}${own ? ' (своя для этого класса — меняется в списке классов)' : ' (общая)'}</div>`;
 
   const Ly = r.layout;
@@ -608,7 +609,7 @@ function renderPreview(): void {
       const bi = bandIndex(v, r.columns[ci].max, kc);
       return Array.from({ length: kc }, (_, j) => (j === bi ? `<td class="band">${inp}</td>` : '<td class="band"></td>')).join('');
     }).join('');
-    return `<tr data-r="${ri}" data-s="${row.studentIndex}" class="${row.reason ? 'retake' : ''} ${row.manual ? 'manual' : ''} ${row.pending ? 'pending' : ''} ${row.incomplete ? 'incomplete' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total">${row.pending ? '' : row.total}</td><td data-k="pct">${row.pending ? '' : pct(row.percent)}</td><td data-k="grade">${row.pending ? '' : row.grade}</td>${del(row)}</tr>`;
+    return `<tr data-r="${ri}" data-s="${row.studentIndex}" class="${row.reason ? 'retake' : ''} ${row.manual ? 'manual' : ''} ${row.pending ? 'pending' : ''} ${row.incomplete ? 'incomplete' : ''} ${row.fromJournal ? 'journal' : ''} ${rowDiff(row) ? 'diff' : ''}"><td>${row.n}</td><td class="name">${h(row.name)}</td>${reasonCells(row)}${cells}<td data-k="total" title="${totalTip(row)}">${row.pending ? '' : row.total}</td><td data-k="pct">${row.pending ? '' : pct(row.percent)}</td><td data-k="grade">${row.pending ? '' : row.grade}</td>${del(row)}</tr>`;
   }).join('');
   const footEl = document.createElement('tfoot');
   renderFootInto(footEl, r);
@@ -627,6 +628,10 @@ function renderPreview(): void {
     ${Ly.showNote && S().noteText.trim() ? `<div class="note">${S().noteText.trim().split('\n').map((l, i) => (i === 0 ? `<b>${h(l)}</b>` : `<div>${h(l)}</div>`)).join('')}</div>` : ''}
   </div>${Ly.showChart ? renderChart(r) : ''}`;
 }
+
+/** Бумажный режим: продиктованная сумма критериев не совпала с общим баллом из журнала. */
+const rowDiff = (row: ReportRow) => !row.fromJournal && !row.pending && !row.incomplete && row.journalTotal != null && row.total !== row.journalTotal;
+const totalTip = (row: ReportRow) => row.journalTotal == null ? '' : row.fromJournal ? 'Общий балл из журнала' : rowDiff(row) ? `В журнале ${row.journalTotal} — сумма критериев другая` : `Совпадает с журналом (${row.journalTotal})`;
 
 /** Правка балла в ячейке: пересчитать строку и итоги без перерисовки всей таблицы. */
 function onScoreEdit(input: HTMLInputElement): void {
@@ -649,13 +654,15 @@ function onScoreEdit(input: HTMLInputElement): void {
   base[ci] = empty ? null : v;
   st.manualScores = base; st.forceAbsent = false;
   const wasPending = !!row.pending;
-  row.raw = base; row.scores = base.map((x) => x ?? 0); row.manual = true;
+  row.raw = base; row.scores = base.map((x) => x ?? 0); row.manual = true; row.fromJournal = false;
   row.incomplete = base.some((x) => x == null); row.pending = false; row.absent = false;
   recalcRow(row, r.max, r.thresholds);
   recalcSummary(r);
   const tr = input.closest('tr')!;
-  tr.classList.remove('pending'); tr.classList.toggle('incomplete', !!row.incomplete); tr.classList.add('manual');
-  tr.querySelector('[data-k="total"]')!.textContent = String(row.total);
+  tr.classList.remove('pending', 'journal'); tr.classList.toggle('incomplete', !!row.incomplete); tr.classList.add('manual');
+  tr.classList.toggle('diff', rowDiff(row));
+  const tc = tr.querySelector<HTMLElement>('[data-k="total"]')!;
+  tc.textContent = String(row.total); tc.title = totalTip(row);
   tr.querySelector('[data-k="pct"]')!.textContent = pct(row.percent);
   tr.querySelector('[data-k="grade"]')!.textContent = String(row.grade);
   renderFootInto($('preview').querySelector('tfoot')!, r);
@@ -670,8 +677,8 @@ let pendingDirty = false;
 function confirmPending(reports: ClassReport[]): boolean {
   if (S().workMode !== 'paper') return true;
   const lines = reports.map((r) => {
-    const p = r.rows.filter((x) => x.pending).length, inc = r.rows.filter((x) => x.incomplete).length;
-    return p || inc ? `${r.className}: не введено ${p}${inc ? `, не все критерии ${inc}` : ''}` : '';
+    const p = r.rows.filter((x) => x.pending).length, inc = r.rows.filter((x) => x.incomplete).length, d = r.rows.filter(rowDiff).length;
+    return p || inc || d ? `${r.className}: не введено ${p}${inc ? `, не все критерии ${inc}` : ''}${d ? `, сумма ≠ журналу ${d}` : ''}` : '';
   }).filter(Boolean);
   if (!lines.length) return true;
   return confirm(`${lines.join('\n')}\n\nНе введённые попадут в отчёт отсутствующими, пропуски критериев — нулями. Скачать?`);

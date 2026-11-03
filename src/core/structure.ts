@@ -58,7 +58,8 @@ export const pathNum = (path: number[]): string => path.map((x) => x + 1).join('
 
 /** Заголовок задания: «2 задание 40 баллов» (или «2 зад\n40 балл»), при наличии названия — ещё строка. */
 export function taskHeader(t: Task, i: number, style: HeaderStyle = 'full'): string {
-  if (style === 'paren') return `${t.title?.trim() || `${i + 1} задание`} (${pointsLabel(taskMax(t))})`;
+  if (style === 'paren') return hasPts(t.title) ? t.title!.trim() : `${t.title?.trim() || `${i + 1} задание`} (${pointsLabel(taskMax(t))})`;
+  if (hasPts(t.title)) return t.title!.trim();
   const base = style === 'short' ? `${i + 1} зад\n${taskMax(t)} балл` : `${i + 1} задание ${pointsLabel(taskMax(t))}`;
   return t.title?.trim() ? `${base}\n${t.title.trim()}` : base;
 }
@@ -68,12 +69,16 @@ export function partHeader(p: Part, s?: Structure, path: number[] = []): string 
   const max = partMax(p);
   if (s?.headerStyle === 'paren') {
     const name = [s.partNumbering && path.length > 1 ? pathNum(path) : '', p.label?.trim() ?? ''].filter(Boolean).join(' ');
-    return name ? `${name} (${pointsLabel(max)})` : `(${pointsLabel(max)})`;
+    return hasPts(p.label) ? name : name ? `${name} (${pointsLabel(max)})` : `(${pointsLabel(max)})`;
   }
   const pts = s?.headerStyle === 'short' ? `${max} балл` : pointsLabel(max);
   const num = s?.partNumbering && path.length > 1 ? `${pathNum(path)}\n` : '';
+  if (hasPts(p.label)) return `${num}${p.label!.trim()}`;
   return p.label?.trim() ? `${num}${p.label.trim()}\n${pts}` : `${num}${pts}`;
 }
+
+/** Учитель уже вписал баллы в название («Знание (5 баллов)») — шапку не дублируем. */
+const hasPts = (t?: string) => !!t && /\d+\s*балл/i.test(t);
 
 /** Название колонки для легенды диаграммы: «2.3 Чертёж (20 баллов)» или «1 задание — Тест». */
 export function columnName(tasks: Task[], col: ScoreColumn): string {

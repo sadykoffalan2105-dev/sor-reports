@@ -57,7 +57,7 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
       ? st.manualScores.map((v, k) => (v == null ? null : Math.max(0, Math.min(maxes[k], Math.round(v) || 0)))) : null;
     const own = raw ? raw.map((v) => v ?? 0) : null;
     const paper = s.workMode === 'paper';
-    const fromJournal = paper ? null : a?.scores[i] ?? null; // в бумажном режиме журнал не раскидывается
+    const fromJournal = a?.scores[i] ?? null; // общий балл из файла журнала (в бумажном режиме — тоже)
     const score = st.forceAbsent ? null : own ? own.reduce((x, y) => x + y, 0) : st.manualScore ?? fromJournal;
     if (score == null && paper && !st.forceAbsent) { // ещё не введено — строка видна и редактируется
       absentNames.push(st.name);
@@ -76,6 +76,7 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
       : s.strategy === 'targets' ? distributeTargets(score, maxes, columns.map((c) => c.target), rng, s.spread ?? 1)
       : distribute(score, maxes, s.strategy === 'ladder' ? 'largest' : s.strategy, rng);
     const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i, manual: !!own, raw: raw ?? undefined, incomplete: !!raw && raw.some((v) => v == null) };
+    if (paper && fromJournal != null) { row.journalTotal = Math.round(fromJournal); row.fromJournal = !own && st.manualScore == null; }
     recalcRow(row, max, s.thresholds);
     rows.push(row);
   });
