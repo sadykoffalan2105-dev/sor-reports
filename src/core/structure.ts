@@ -30,6 +30,8 @@ export function effBands(own: number | undefined, s: Structure): number {
 }
 
 /** Листья дерева — колонки баллов отчёта (путь: [задание, критерий, подкритерий…]). */
+/** Типичные стоимости вопроса в тестовых СОР/СОЧ. */
+const AUTO_STEPS = [2.5, 4.5, 5.5, 1.5, 3.5, 6.5, 7.5];
 export function flattenColumns(s: Structure): ScoreColumn[] {
   const cols: ScoreColumn[] = [];
   s.tasks.forEach((t, ti) => {
@@ -44,6 +46,8 @@ export function flattenColumns(s: Structure): ScoreColumn[] {
     });
     walk(t.parts, [ti]);
   });
+  // дробная разбаловка (7,5; 27; 5,5 — тесты по 2,5 / 4,5 / 5,5): шаг вопроса подбирается сам, если не задан
+  if (cols.some((c) => !Number.isInteger(c.max))) for (const c of cols) if (!c.step) c.step = AUTO_STEPS.find((st) => { const n = c.max / st; return Math.abs(n - Math.round(n)) < 1e-9 && n >= 1 && n <= 10; });
   return cols;
 }
 
