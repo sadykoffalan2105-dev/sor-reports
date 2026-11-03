@@ -234,7 +234,7 @@ export const BUILTIN_PRESETS: { name: string; text: string }[] = [
 ];
 
 export function builtinPresets(): Preset[] {
-  return [...BUILTIN_PRESETS.map((p) => ({ id: newPresetId(), name: p.name, structure: parseStructure(p.text)! })), technologyPreset(), rusSochPreset()];
+  return [...BUILTIN_PRESETS.map((p) => ({ id: newPresetId(), name: p.name, structure: parseStructure(p.text)! })), technologyPreset(), techSorPreset(TECH_SOR57, [5, 15, 15, 5]), techSorPreset(TECH_SOR8, [5, 10, 10, 5, 10]), rusSochPreset()];
 }
 
 /** Русский язык — СОЧ из 10 тестов: знание 3 × 2,5; применение 6 × 4,5; размышление 1 × 5,5 (40 баллов). */
@@ -244,8 +244,23 @@ export function rusSochPreset(): Preset {
   return { id: newPresetId(), name: RUS_SOCH_NAME, structure: { tasks: [t('Знание', 3, 2.5), t('Применение', 6, 4.5), t('Размышление', 1, 5.5)], headerStyle: 'paren' } };
 }
 
+/** Технология СОР (50) по формам школы: 1.1 · 2 зад (критерии) · 3 зад, уровни под критериями; лестницы — из тетради учителя. */
+export const TECH_SOR57 = 'Технология — СОР 50, 5–7 и 9 кл.';
+export const TECH_SOR8 = 'Технология — СОР 50, 8 кл.';
+export function techSorPreset(name: string, parts: number[]): Preset {
+  const one = (title: string): Task => ({ title, max: 5, parts: [{ label: '', max: 5 }] });
+  return { id: newPresetId(), name, structure: { tasks: [one('1.1'), { title: '2 зад 40 балл', max: 40, parts: parts.map((m) => ({ label: '', max: m })) }, one('3 зад')], bands: 3, headerStyle: 'short', partNumbering: true } };
+}
+/** Лестницы учителя: общий балл → баллы по колонкам (1.1, 2.1 …, 3 зад). Ключ — разбаловка текстом. */
+export const TECH_LADDERS: Record<string, Record<string, number[]>> = {
+  '5; 5+15+15+5; 5': { 50: [5, 5, 15, 15, 5, 5], 48: [5, 5, 13, 15, 5, 5], 46: [5, 5, 13, 13, 5, 5], 44: [5, 5, 11, 13, 5, 5], 42: [5, 5, 11, 11, 5, 5], 40: [5, 5, 10, 10, 5, 5] },
+  '5; 5+10+10+5+10; 5': { 50: [5, 5, 10, 10, 5, 10, 5], 48: [5, 5, 8, 10, 5, 10, 5], 46: [5, 5, 8, 8, 5, 10, 5], 44: [5, 5, 8, 8, 5, 8, 5], 42: [5, 5, 6, 8, 5, 8, 5], 40: [5, 5, 6, 8, 5, 6, 5] },
+  '5; 5+10+10+5; 5': { 40: [5, 5, 10, 10, 5, 5], 38: [5, 5, 8, 10, 5, 5], 36: [5, 5, 8, 8, 5, 5], 34: [5, 5, 7, 7, 5, 5], 32: [5, 5, 6, 6, 5, 5], 30: [5, 5, 5, 5, 5, 5] },
+};
+
 /** Технология — форма с уровнями: 1.1 (5, у всех 5), 2 зад (2.1 5, 2.2 10, 2.3 10, 2.4 5), 3 зад (5, у всех 5). */
-export const TECH_NAME = 'Технология — форма с уровнями';
+export const TECH_NAME = 'Технология — СОЧ 40 (форма с уровнями)';
+export const TECH_NAME_OLD = 'Технология — форма с уровнями';
 export function technologyPreset(): Preset {
   const one = (title: string): Task => ({ title, max: 5, parts: [{ label: '', max: 5, fixed: 5 }] });
   return {

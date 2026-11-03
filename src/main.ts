@@ -4,7 +4,7 @@ import { buildReport, recalcRow, recalcSummary, fullDate } from './core/report.t
 import { gradeFor } from './core/distribute.ts';
 import {
   parseStructure, structureFromText, structureToText, structureMax, flattenColumns, taskHeader, taskMax,
-  cloneStructure, normalizeStructure, newPresetId, builtinPresets, technologyPreset, TECH_NAME, rusSochPreset, RUS_SOCH_NAME, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
+  cloneStructure, normalizeStructure, newPresetId, builtinPresets, technologyPreset, TECH_NAME, TECH_NAME_OLD, techSorPreset, TECH_SOR57, TECH_SOR8, TECH_LADDERS, rusSochPreset, RUS_SOCH_NAME, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
 } from './core/structure.ts';
 import { buildHeader } from './core/header.ts';
 import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLadderGaps, type Ladder, type RuleStep } from './core/ladder.ts';
@@ -34,7 +34,7 @@ function defaults(): Settings {
     includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
     fontName: 'Aptos Narrow',
     variantLabel: '', noteText: NOTE_DEFAULT,
-    ladders: {}, ladderRows: {}, ladderRules: {}, workMode: 'dist',
+    ladders: {}, ladderRows: { ...TECH_LADDERS }, ladderRules: {}, workMode: 'dist', techV: 3,
     layout: mergeLayout(DEFAULT_LAYOUT, {}),
   };
 }
@@ -54,13 +54,19 @@ function loadSettings(): Settings {
       migrateLadders(s);
       if (!Array.isArray(s.presets) || !s.presets.length) { s.presets = d.presets; s.presetId = d.presetId; }
       { // шаблон «Технология»: добавить; один раз починить, если его разбаловку случайно переписали (5; 5; 10; 15; 15)
+        for (const p of s.presets) if (p.name === TECH_NAME_OLD) p.name = TECH_NAME; // старое имя шаблона СОЧ
         const canon = technologyPreset(), tech = s.presets.find((p) => p.name === TECH_NAME);
         if (!tech) s.presets.push(canon);
         else if ((s.techV ?? 0) < 2 && structureToText(tech.structure) !== structureToText(canon.structure)) {
           s.presets.push({ id: newPresetId(), name: `${TECH_NAME} (изменённая)`, structure: tech.structure });
           tech.structure = canon.structure; // id прежний — классы с этим шаблоном сразу получают правильную форму
         } else if ((s.techV ?? 0) < 2) tech.structure = canon.structure;
-        s.techV = 2;
+        if ((s.techV ?? 0) < 3) { // формы СОР 50 и лестницы учителя (свои правки лестниц не трогаем)
+          if (!s.presets.some((p) => p.name === TECH_SOR57)) s.presets.push(techSorPreset(TECH_SOR57, [5, 15, 15, 5]));
+          if (!s.presets.some((p) => p.name === TECH_SOR8)) s.presets.push(techSorPreset(TECH_SOR8, [5, 10, 10, 5, 10]));
+          for (const [k, rows] of Object.entries(TECH_LADDERS)) if (!s.ladderRows[k]) s.ladderRows[k] = { ...rows };
+        }
+        s.techV = 3;
       }
       if (!s.presets.some((p) => p.name === RUS_SOCH_NAME)) s.presets.push(rusSochPreset());
       if (!s.presets.some((p) => p.id === s.presetId)) s.presetId = s.presets[0].id;
@@ -274,7 +280,8 @@ function addOne(cls: JournalClass): void {
     state.all.push({ cls, presetId: p.id, report: null });
     return;
   }
-  const auto = grade ? s.presets.find((p) => new RegExp(`^${grade}\\s*класс`, 'i').test(p.name)) : undefined;
+  const tech = /технолог/i.test(cls.subject ?? '') && cls.assessments.find((a) => a.id === cls.selectedAssessment)?.max === 50 ? s.presets.find((p) => p.name === (grade === '8' ? TECH_SOR8 : TECH_SOR57)) : undefined;
+  const auto = tech ?? (grade ? s.presets.find((p) => new RegExp(`^${grade}\\s*класс`, 'i').test(p.name)) : undefined);
   state.all.push({ cls, presetId: auto && auto.id !== s.presetId ? auto.id : '', report: null });
 }
 
@@ -1321,6 +1328,14 @@ async function restoreWork(): Promise<void> {
   try {
     const w = JSON.parse(j) as { active: number; all: { cls: JournalClass; presetId: string }[] };
     state.all = w.all.map((x) => ({ cls: x.cls, presetId: S().presets.some((p) => p.id === x.presetId) ? x.presetId : '', report: null }));
+    // технология: у СОР на 50 стоял шаблон СОЧ на 40 (баллы журнала обрезались до 40) — ставим форму СОР своей параллели
+    const soch = S().presets.find((p) => p.name === TECH_NAME)?.id;
+    for (const cs of state.all) {
+      const am = cs.cls.assessments.find((a) => a.id === cs.cls.selectedAssessment)?.max;
+      if (soch && cs.presetId === soch && am === 50 && /технолог/i.test(cs.cls.subject ?? '')) {
+        const p = S().presets.find((x) => x.name === (cs.cls.className.startsWith('8') ? TECH_SOR8 : TECH_SOR57)); if (p) cs.presetId = p.id;
+      }
+    }
     applyMake();
     state.active = Math.max(0, Math.min(state.classes.length - 1, w.active ?? 0));
     savedJson = j;

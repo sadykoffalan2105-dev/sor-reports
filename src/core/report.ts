@@ -89,7 +89,7 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     else {
       let si: number[];
       if (byItems) si = byItems(score * kk);
-      else if (fixedSum && fx.some((v) => v == null) && t >= fixedSum) { // «у всех одинаково»: остальное — по другим критериям
+      else if (fixedSum && fx.some((v) => v == null) && t >= fixedSum && !(rowsOf?.[t] && fx.every((v, j) => v == null || rowsOf[t][j] === v))) { // «у всех одинаково»: остальное — по другим критериям
         const free = columns.map((_, k) => k).filter((k) => fx[k] == null);
         const part = split(Math.min(t - fixedSum, free.reduce((a, k) => a + mI[k], 0)), free.map((k) => mI[k]), free.map((k) => columns[k].target));
         si = columns.map((_, k) => fx[k] ?? part[free.indexOf(k)]);
