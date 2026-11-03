@@ -238,7 +238,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
     ws.getCell(c4Row, 2).value = 'Количество - “4”';
     ws.getCell(c4Row, L.scoreStart).value = { formula: `COUNTIF(${gradeRange},4)`, result: r.count4 };
     // «3» и «2» — в тех же строках, правее
-    for (const [row, g, v] of [[c5Row, 3, r.count3], [c4Row, 2, r.count2]] as const) {
+    if (Ly.showCounts32 !== false) for (const [row, g, v] of [[c5Row, 3, r.count3], [c4Row, 2, r.count2]] as const) {
       ws.mergeCells(row, L.scoreStart + 1, row, L.scoreStart + 2);
       const lb = ws.getCell(row, L.scoreStart + 1);
       lb.value = `Количество - “${g}”`; lb.font = { ...(ws.getCell(row, 2).font ?? {}), bold: true }; lb.alignment = { horizontal: 'left', vertical: 'middle' };

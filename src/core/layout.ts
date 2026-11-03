@@ -8,6 +8,7 @@ export interface ReportLayout {
   showAvg: boolean;        // «Сред.балл»
   showPct: boolean;        // «Процентный показатель»
   showCounts: boolean;     // «Количество 5 / 4»
+  showCounts32?: boolean;  // рядом «Количество 3 / 2» (по умолчанию да)
   showEff: boolean;        // «Эффективность знаний»
   showSignature: boolean;
   showNote: boolean;

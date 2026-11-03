@@ -645,7 +645,7 @@ function renderFootInto(el: HTMLElement, r: ClassReport): void {
   if (Ly.showPct) rows.push(`<tr><td></td><td class="lbl">Процентный показатель</td>${lead}${r.avg.map((a, i) => `<td colspan="${ks[i]}">${pct(r.columns[i].max ? a / r.columns[i].max : 0)}</td>`).join('')}<td>${pct(r.max ? r.avgTotal / r.max : 0)}</td><td></td><td></td></tr>`);
   // «3» и «2» — в тех же строках, правее «5» и «4»
   const rest = Math.max(0, physTotal + 2 - 3);
-  const side = (k: number, v: number) => `<td class="lbl" colspan="2">Количество - “${k}”</td><td>${v}</td>${rest ? `<td colspan="${rest}"></td>` : ''}`;
+  const side = (k: number, v: number) => Ly.showCounts32 === false ? `<td colspan="${physTotal + 2}"></td>` : `<td class="lbl" colspan="2">Количество - “${k}”</td><td>${v}</td>${rest ? `<td colspan="${rest}"></td>` : ''}`;
   if (Ly.showCounts) rows.push(`<tr><td></td><td class="lbl">Количество - “5”</td>${lead}<td>${r.count5}</td>${side(3, r.count3)}</tr>
     <tr><td></td><td class="lbl">Количество - “4”</td>${lead}<td>${r.count4}</td>${side(2, r.count2)}</tr>`);
   if (Ly.showEff) rows.push(`<tr><td></td><td class="lbl eff">Эффективность знаний</td>${lead}<td colspan="${physTotal + 1}"></td><td class="eff">${pct(r.efficiency)}</td><td></td></tr>`);
@@ -940,6 +940,7 @@ function bindSettings(): void {
   const setLayoutFields = () => {
     const l = s.layout;
     for (const k of ['showTitle', 'showVariant', 'showInfo', 'showAvg', 'showPct', 'showCounts', 'showEff', 'showSignature', 'showNote', 'showChart'] as const) ($('l-' + k) as HTMLInputElement).checked = l[k];
+    ($('l-showCounts32') as HTMLInputElement).checked = l.showCounts32 !== false;
     set('l-title', l.titleTemplate); set('l-chart-title', l.chartTitleTemplate);
     set('l-name', l.labels.name); set('l-total', l.labels.total); set('l-percent', l.labels.percent); set('l-grade', l.labels.grade); set('l-signature', l.labels.signature);
   };
@@ -965,7 +966,7 @@ function bindSettings(): void {
     s.layout = {
       ...s.layout,
       showTitle: b('l-showTitle'), showVariant: b('l-showVariant'), showInfo: b('l-showInfo'), showAvg: b('l-showAvg'), showPct: b('l-showPct'),
-      showCounts: b('l-showCounts'), showEff: b('l-showEff'), showSignature: b('l-showSignature'), showNote: b('l-showNote'), showChart: b('l-showChart'),
+      showCounts: b('l-showCounts'), showCounts32: b('l-showCounts32'), showEff: b('l-showEff'), showSignature: b('l-showSignature'), showNote: b('l-showNote'), showChart: b('l-showChart'),
       titleTemplate: v('l-title').trim() || DEFAULT_LAYOUT.titleTemplate, chartTitleTemplate: v('l-chart-title').trim() || DEFAULT_LAYOUT.chartTitleTemplate,
       labels: { name: v('l-name').trim() || DEFAULT_LAYOUT.labels.name, total: v('l-total').trim() || DEFAULT_LAYOUT.labels.total, percent: v('l-percent').trim() || DEFAULT_LAYOUT.labels.percent, grade: v('l-grade').trim() || DEFAULT_LAYOUT.labels.grade, signature: v('l-signature').trim() },
     };
