@@ -11,6 +11,7 @@ import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLad
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
 import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
 import { initVoice } from './voice/voice.ts';
+import { ask, tell } from './ui/dialog.ts';
 import { prepareNames } from './voice/names.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
 import type { ClassReport, JournalClass, Kind, Part, Preset, ReportRow, Settings, Structure, Task } from './core/types.ts';
@@ -142,7 +143,19 @@ function rebuild(index?: number): void {
 }
 
 function download(bytes: Uint8Array, name: string): void {
-  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  const blob = new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (import.meta.env.DEV) { // локальный запуск (встроенное окно): файл кладёт в «Загрузки» сам dev-сервер
+    void fetch(`/__save?name=${encodeURIComponent(name)}`, { method: 'POST', body: blob })
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+      .then((path) => tell(`Книга сохранена в «Загрузки»:
+${path}`))
+      .catch(() => anchorDownload(blob, name));
+    return;
+  }
+  anchorDownload(blob, name);
+}
+function anchorDownload(blob: Blob, name: string): void {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
@@ -166,7 +179,7 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   state.active = Math.max(0, Math.min(state.classes.length - 1, firstNew)); // первый класс из этих файлов (СОР раньше СОЧ)
   render();
   prepareVoiceNames();
-  if (errors.length) alert(errors.join('\n'));
+  if (errors.length) tell(errors.join('\n'));
 }
 
 /** Голосовая база: сразу разобрать имена всех загруженных классов (в фоне). */
@@ -766,14 +779,14 @@ function onScoreEdit(input: HTMLInputElement): void {
 let pendingDirty = false;
 
 /** Бумажный режим: предупредить, если у кого-то баллы не введены или введены не полностью. */
-function confirmPending(reports: ClassReport[]): boolean {
-  if (S().workMode !== 'paper') return true;
+function confirmPending(reports: ClassReport[]): Promise<boolean> {
+  if (S().workMode !== 'paper') return Promise.resolve(true);
   const lines = reports.map((r) => {
     const p = r.rows.filter((x) => x.pending).length, inc = r.rows.filter((x) => x.incomplete).length, d = r.rows.filter(rowDiff).length;
     return p || inc || d ? `${r.className}: не введено ${p}${inc ? `, не все критерии ${inc}` : ''}${d ? `, сумма ≠ журналу ${d}` : ''}` : '';
   }).filter(Boolean);
-  if (!lines.length) return true;
-  return confirm(`${lines.join('\n')}\n\nНе введённые попадут в отчёт отсутствующими, пропуски критериев — нулями. Скачать?`);
+  if (!lines.length) return Promise.resolve(true);
+  return ask(`${lines.join('\n')}\n\nНе введённые попадут в отчёт отсутствующими, пропуски критериев — нулями. Скачать?`, 'Скачать');
 }
 
 /** Enter / ↓ в клетке — следующая клетка (в конце строки — первая клетка следующего ученика). */
@@ -980,11 +993,11 @@ function bindSettings(): void {
     if (!name) { ($('preset-name') as HTMLInputElement).value = editingPreset().name; return; }
     editingPreset().name = name; saveSettings(); render();
   });
-  $('preset-del').addEventListener('click', () => {
+  $('preset-del').addEventListener('click', async () => {
     const s2 = S();
     if (s2.presets.length <= 1) return;
     const cur = editingPreset();
-    if (!confirm(`Удалить разбаловку «${cur.name}»?`)) return;
+    if (!(await ask(`Удалить разбаловку «${cur.name}»?`, 'Удалить'))) return;
     s2.presets = s2.presets.filter((p) => p.id !== cur.id);
     for (const cs of state.classes) if (cs.presetId === cur.id) cs.presetId = '';
     if (!presetById(s2.presetId)) s2.presetId = s2.presets[0].id;
@@ -1039,12 +1052,12 @@ function bindSettings(): void {
     if (t.dataset.f === 'col') r.col = Number(t.value); else if (t.dataset.f === 'step') r.step = Math.max(0, Math.round(Number(t.value)) || 0); else r.floor = Math.max(0, Math.round(Number(t.value)) || 0);
     saveRule(key, rule);
   });
-  $('ladder-rule').addEventListener('click', (e) => {
+  $('ladder-rule').addEventListener('click', async (e) => {
     const b = (e.target as HTMLElement).closest('button[data-act]') as HTMLElement | null; if (!b) return;
     const key = ladderKey(); const rule = ruleOf(key); const act = b.dataset.act;
     const i = Number((b.closest('.rule-step') as HTMLElement | null)?.dataset.i);
     if (act === 'rule-add') { const cols = flattenColumns(parseStructure(key)!); const used = new Set(rule.map((r) => r.col)); const next = cols.map((_, j) => j).sort((a, c) => cols[c].max - cols[a].max || c - a).find((j) => !used.has(j)) ?? 0; rule.push({ col: next, step: 0, floor: Math.ceil(cols[next].max * 0.7) }); }
-    else if (act === 'rule-clear') { if (!confirm('Убрать правило снятия баллов?')) return; rule.length = 0; }
+    else if (act === 'rule-clear') { if (!(await ask('Убрать правило снятия баллов?', 'Убрать'))) return; rule.length = 0; }
     else if (act === 'rule-del') rule.splice(i, 1);
     else if (act === 'rule-up' && i > 0) [rule[i - 1], rule[i]] = [rule[i], rule[i - 1]];
     else if (act === 'rule-down' && i < rule.length - 1) [rule[i + 1], rule[i]] = [rule[i], rule[i + 1]];
@@ -1092,9 +1105,9 @@ function bindSettings(): void {
     rebuild(); render();
   });
   $('ladder-full').addEventListener('click', () => { state.ladderFull = !state.ladderFull; renderLadder(); });
-  $('ladder-reset').addEventListener('click', () => {
+  $('ladder-reset').addEventListener('click', async () => {
     const key = ladderKey();
-    if ((S().ladderRows[key] || S().ladderRules[key]) && !confirm('Убрать свои строки и правило снятия, вернуть общее правило учителя?')) return;
+    if ((S().ladderRows[key] || S().ladderRules[key]) && !(await ask('Убрать свои строки и правило снятия, вернуть общее правило учителя?', 'Вернуть'))) return;
     delete S().ladderRows[key]; delete S().ladderRules[key]; saveSettings(); rebuild(); render();
   });
   $('ladder').addEventListener('input', (e) => {
@@ -1147,7 +1160,7 @@ function bindEvents(): void {
       const cs = state.classes[i]; if (!cs) return;
       const a = cs.cls.assessments.find((x) => x.id === cs.cls.selectedAssessment) ?? cs.cls.assessments[0];
       const d = fullDate(a?.date, cs.cls.year || S().year);
-      if (!d) { alert('В журнале нет даты для этой колонки.'); return; }
+      if (!d) { tell('В журнале нет даты для этой колонки.'); return; }
       cs.cls.dateHeld = d; rebuild(i); state.active = i; render(); return;
     }
     const b = (e.target as HTMLElement).closest('[data-act="remove"]'); if (!b) return;
@@ -1157,7 +1170,7 @@ function bindEvents(): void {
 
   $('m-add').addEventListener('click', () => {
     const cls = parseManualList(($('m-text') as HTMLTextAreaElement).value, ($('m-class') as HTMLInputElement).value, Number(($('m-max') as HTMLInputElement).value) || 50);
-    if (!cls) { alert('Не нашёл ни одной строки с учеником.'); return; }
+    if (!cls) { tell('Не нашёл ни одной строки с учеником.'); return; }
     const g = ($('m-group') as HTMLSelectElement).value; if (g) cls.group = g as JournalClass['group'];
     addClass(cls); rebuild(); state.active = state.classes.length - 1; render();
     ($('m-text') as HTMLTextAreaElement).value = '';
@@ -1213,11 +1226,11 @@ function bindEvents(): void {
     else return;
     rebuild(state.active); renderPreview();
   });
-  $('preview').addEventListener('click', (e) => { // убрать ученика
+  $('preview').addEventListener('click', async (e) => { // убрать ученика
     const b = (e.target as HTMLElement).closest('button[data-act="del-student"]') as HTMLElement | null; if (!b) return;
     const cs = state.classes[state.active]; if (!cs) return;
     const si = Number(b.dataset.s); const st = cs.cls.students[si]; if (!st) return;
-    if (!confirm(`Убрать ${st.name} из отчёта?`)) return;
+    if (!(await ask(`Убрать ${st.name} из отчёта?`, 'Убрать'))) return;
     cs.cls.students.splice(si, 1);
     for (const a of cs.cls.assessments) a.scores.splice(si, 1);
     cs.cls.students.forEach((x, i) => { x.n = i + 1; });
@@ -1227,12 +1240,12 @@ function bindEvents(): void {
   $('dl-all').addEventListener('click', async () => {
     const reports = state.classes.map((c) => c.report).filter((r): r is ClassReport => !!r);
     if (!reports.length) return;
-    if (!confirmPending(reports)) return;
+    if (!(await confirmPending(reports))) return;
     download(await exportWorkbook(reports, S()), fileNameFor(reports, S()));
   });
   $('dl-one').addEventListener('click', async () => {
     const r = state.classes[state.active]?.report; if (!r) return;
-    if (!confirmPending([r])) return;
+    if (!(await confirmPending([r]))) return;
     download(await exportWorkbook([r], S()), fileNameFor([r], S()).replace('.xlsx', ` ${r.sheetName}.xlsx`));
   });
   $('reshuffle').addEventListener('click', () => {
@@ -1297,9 +1310,9 @@ function renderAutosave(fresh = false): void {
 setInterval(saveWork, 1500);
 addEventListener('pagehide', saveWork);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveWork(); });
-$('autosave').addEventListener('click', (e) => {
+$('autosave').addEventListener('click', async (e) => {
   if (!(e.target as HTMLElement).closest('#clear-work')) return;
-  if (!confirm('Убрать все загруженные классы и правки? Разбаловки и настройки останутся.')) return;
+  if (!(await ask('Убрать все загруженные классы и правки? Разбаловки и настройки останутся.', 'Очистить'))) return;
   state.all = []; state.classes = []; state.active = 0; saveWork(); render();
 });
 

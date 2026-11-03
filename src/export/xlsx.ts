@@ -305,7 +305,8 @@ export async function exportWorkbook(reports: ClassReport[], s: Settings): Promi
 }
 
 export function fileNameFor(reports: ClassReport[], s: Settings): string {
-  const subj = reports[0]?.subject ?? 'предмет';
+  const subjs = [...new Set(reports.map((r) => r.subject).filter(Boolean))];
+  const subj = subjs.length ? subjs.join(', ') : 'предмет'; // в книге несколько предметов — все в имени файла
   const who = s.teacherShort ? ` ${s.teacherShort.replace(/\s+/g, '_')}` : '';
   return `${s.kind}-${s.number} ${subj}${who}.xlsx`.replace(/[\\/:*?"<>|]/g, '_');
 }

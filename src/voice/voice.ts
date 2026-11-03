@@ -6,6 +6,7 @@
 import type { ClassReport, JournalClass, Student } from '../core/types.ts';
 import { parsePhrase, interpret, findStudent, nameWords, nameKey, normalize, wordsToDigits, sayNumbers, type Parsed, type Aliases } from './parse.ts';
 import { variants } from './names.ts';
+import { ask, tell } from '../ui/dialog.ts';
 import { VoskEngine, WebSpeechEngine, beep, voskAvailable, webSpeechAvailable, isApp, type Engine, type EngineKind } from './engine.ts';
 
 export interface VoiceHost {
@@ -369,9 +370,9 @@ export function initVoice(host: VoiceHost) {
     const c = syncClass(); if (!c) { show('сначала загрузите класс', 'err'); return; }
     train = 0; if (!listening) void startListening().then(() => trainShow()); else trainShow();
   });
-  bar.addEventListener('click', (e) => {
+  bar.addEventListener('click', async (e) => {
     if (!(e.target as HTMLElement).closest('#vb-forget')) return;
-    if (!confirm('Забыть все выученные произношения имён на этом устройстве?')) return;
+    if (!(await ask('Забыть все выученные произношения имён на этом устройстве?', 'Забыть'))) return;
     for (const k of Object.keys(aliases)) delete aliases[k];
     saveAliases(); show('выученные имена забыты', 'ok');
   });
@@ -406,7 +407,7 @@ export function initVoice(host: VoiceHost) {
         ta.scrollTop = ta.scrollHeight; signal('ok');
       },
       partial: () => undefined,
-      status: (k, msg) => { if (k === 'error') { alert(msg); reset(); } else if (k === 'loading') btn.textContent = `⏳ ${msg?.match(/\d+ %/)?.[0] ?? 'загрузка…'}`; else if (k === 'listening') btn.textContent = '⏹ Остановить диктовку'; },
+      status: (k, msg) => { if (k === 'error') { tell(msg ?? 'ошибка'); reset(); } else if (k === 'loading') btn.textContent = `⏳ ${msg?.match(/\d+ %/)?.[0] ?? 'загрузка…'}`; else if (k === 'listening') btn.textContent = '⏹ Остановить диктовку'; },
     });
   };
 
