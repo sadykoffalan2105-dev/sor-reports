@@ -5,6 +5,7 @@
  */
 import type { ClassReport, JournalClass, Student } from '../core/types.ts';
 import { parsePhrase, interpret, findStudent, nameWords, nameKey, normalize, wordsToDigits, sayNumbers, type Parsed, type Aliases } from './parse.ts';
+import { variants } from './names.ts';
 import { VoskEngine, WebSpeechEngine, beep, voskAvailable, webSpeechAvailable, isApp, type Engine, type EngineKind } from './engine.ts';
 
 export interface VoiceHost {
@@ -220,7 +221,7 @@ export function initVoice(host: VoiceHost) {
     const nw = nameWords(heard);
     let learned = '';
     if (nw.length) {
-      const who = findStudent(nw, cls.students.map((s) => s.name), aliases);
+      const who = findStudent(nw, cls.students.map((s) => s.name), aliases, variants());
       if (who < 0) {
         if (!lastMiss || Date.now() - lastMiss.t > 1500) lastMiss = { key: nameKey(nw.join('')), heard: nw.join(' '), clsId: cls.id, t: Date.now() };
         return { ok: false, error: `не узнал ученика «${h(nw.join(' '))}» — скажите ещё раз или нажмите на его строку (запомню произношение)` };
@@ -315,7 +316,7 @@ export function initVoice(host: VoiceHost) {
     const nw = nameWords(alts[0] ?? '');
     if (!nw.length) { show('не расслышал — скажите имя ещё раз', 'err'); signal('err'); return; }
     const names = c.cls.students.map((s) => s.name);
-    const was = findStudent(nw, names, aliases);
+    const was = findStudent(nw, names, aliases, variants());
     if (was !== train) { for (const a of alts.slice(0, 2)) { const w = nameWords(a); if (w.length) aliases[nameKey(w.join(''))] = normalize(names[train]); } saveAliases(); }
     signal('ok');
     lastMsg = `<span class="vb-ok">${h(names[train].split(' ')[0])}: ${was === train ? 'узнаю и так ✓' : `запомнил «${h(nw.join(' '))}»`}</span>`;

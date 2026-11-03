@@ -179,7 +179,7 @@ export function interpret(nums: NumTok[], maxes: number[], cursor: number, mode:
  * Найти ученика по услышанным словам (фамилия, фамилия + имя, начало фамилии) — по звучанию.
  * −1, если уверенного совпадения нет: тогда балл не записывается чужому ученику.
  */
-export function findStudent(words: string[], students: string[], aliases: Aliases = {}): number {
+export function findStudent(words: string[], students: string[], aliases: Aliases = {}, variants: Variants = {}): number {
   const cand = words.map(normalize).filter(Boolean).slice(0, 5);
   if (!cand.length) return -1;
   // окна из 1–4 слов от начала фразы: распознаватель режет узбекскую фамилию на куски («об дурак мы ноф»)
@@ -187,7 +187,12 @@ export function findStudent(words: string[], students: string[], aliases: Aliase
   for (let a = 0; a < Math.min(3, cand.length); a++) for (let k = 1; k <= 4 && a + k <= cand.length; k++) qs.push({ q: nameKey(cand.slice(a, a + k).join('')), w: a ? 0.97 - 0.02 * a : 1 });
   const norm = students.map(normalize);
   for (const { q } of qs) { const i = aliases[q] ? norm.indexOf(aliases[q]) : -1; if (i >= 0) return i; } // выученное произношение
-  const scores = norm.map((name) => {
+  // голосовая база: как распознаватель слышит имя (выучено / из базы) → дополнительные «звучания» ученика
+  const hashes = norm.map(fnv);
+  const extra: string[][] = norm.map(() => []);
+  for (const [k, v] of Object.entries(aliases)) { const i = norm.indexOf(v); if (i >= 0) extra[i].push(k); }
+  for (const [k, v] of Object.entries(variants)) { const i = hashes.indexOf(v); if (i >= 0) extra[i].push(k); }
+  const scores = norm.map((name, si) => {
     const p = name.split(' ');
     const sur = nameKey(p[0]), first = nameKey(p[1] ?? ''), sf = nameKey(p.slice(0, 2).join('')), fs = nameKey([p[1] ?? '', p[0]].join(''));
     let best = 0;
@@ -200,7 +205,7 @@ export function findStudent(words: string[], students: string[], aliases: Aliase
       if (sur.length >= 4 && q.startsWith(sur)) s = Math.max(s, 0.9);
       best = Math.max(best, s * w);
     }
-    for (const [k, v] of Object.entries(aliases)) if (v === name) for (const { q } of qs) if (sim(q, k) >= 0.85) best = Math.max(best, 0.95);
+    for (const k of extra[si]) for (const { q, w } of qs) if (q.length >= 3) best = Math.max(best, (k === q ? 1 : 0.97 * sim(q, k)) * w);
     return best;
   });
   const order = scores.map((v, i) => [v, i] as const).sort((x, y) => y[0] - x[0]);
@@ -212,6 +217,10 @@ export function findStudent(words: string[], students: string[], aliases: Aliase
 
 /** Выученные произношения: звуковой ключ услышанного → имя ученика (как в списке, normalize). */
 export type Aliases = Record<string, string>;
+/** Голосовая база: звуковой ключ услышанного → хеш имени ученика (сами имена в базе не хранятся). */
+export type Variants = Record<string, string>;
+/** Короткий хеш (FNV-1a) нормализованного имени. */
+export const fnv = (s: string): string => { let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); } return (x >>> 0).toString(36); };
 /** Звуковой ключ имени с поправками на узбекские звуки: х/қ ≈ к, дж ≈ ж, ғ ≈ г, ў ≈ у. */
 export const nameKey = (s: string): string => phon(normalize(s).replace(/дж/g, 'ж').replace(/[хқ]/g, 'к').replace(/ғ/g, 'г').replace(/ў/g, 'у'));
 const stem = (k: string) => k.replace(/(афа|ифа|аф|иф)$/, '');

@@ -217,6 +217,34 @@ export function beep(kind: 'ok' | 'err' | 'next'): void {
   } catch { /* без звука */ }
 }
 
+/** Модель уже скачана на этом устройстве — можно прогреть заранее, без трафика. */
+export const voskCached = (): boolean => { try { return localStorage.getItem('sor.voskModel') === MODEL_URL(); } catch { return false; } };
+/** Прогреть офлайн-модель (при загрузке классов), чтобы микрофон включался сразу. */
+export const warmVosk = (): Promise<unknown> => loadModel(() => undefined).catch(() => undefined);
+
+/** Распознать несколько записей (WAV) подряд одним распознавателем — для голосовой базы имён. */
+export async function voskRecognizeBuffers(bufs: ArrayBuffer[], onEach?: (i: number) => void): Promise<string[]> {
+  const model = await loadModel(() => undefined);
+  const rec = new model.KaldiRecognizer(16000);
+  await new Promise((r) => setTimeout(r, 600)); // распознаватель создаётся асинхронно
+  let text = '', last = 0, finals = 0;
+  rec.on('result', (m) => { last = Date.now(); finals++; const t = (m as unknown as { result: { text: string } }).result?.text ?? ''; if (t) text += ' ' + t; });
+  const out: string[] = [];
+  const pad = new Float32Array(8000);
+  for (let n = 0; n < bufs.length; n++) {
+    let data: Float32Array;
+    try { data = (await new OfflineAudioContext(1, 16000, 16000).decodeAudioData(bufs[n].slice(0))).getChannelData(0); } catch { out.push(''); continue; }
+    text = ''; finals = 0; last = Date.now();
+    for (const chunk of [data, pad]) for (let i = 0; i < chunk.length; i += 4096) rec.acceptWaveformFloat(chunk.slice(i, i + 4096), 16000);
+    rec.retrieveFinalResult();
+    const t0 = Date.now();
+    await new Promise<void>((res) => { const t = setInterval(() => { if ((finals >= 1 && Date.now() - last > 250) || Date.now() - t0 > 8000) { clearInterval(t); res(); } }, 30); });
+    out.push(text.trim()); onEach?.(n);
+  }
+  rec.remove();
+  return out;
+}
+
 /** Проверка без микрофона: прогнать WAV через Vosk и вернуть распознанное (для тестов в браузере). */
 export async function voskRecognizeFile(url: string): Promise<{ text: string; ms: number; audioMs: number }> {
   const model = await loadModel(() => undefined);

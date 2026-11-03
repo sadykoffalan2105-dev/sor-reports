@@ -11,6 +11,7 @@ import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLad
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
 import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
 import { initVoice } from './voice/voice.ts';
+import { prepareNames } from './voice/names.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
 import type { ClassReport, JournalClass, Kind, Part, Preset, ReportRow, Settings, Structure, Task } from './core/types.ts';
 
@@ -164,6 +165,11 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   rebuild();
   state.active = Math.max(0, Math.min(state.classes.length - 1, firstNew)); // первый класс из этих файлов (СОР раньше СОЧ)
   render();
+  // голосовая база: сразу разобрать имена всех загруженных классов (в фоне)
+  void prepareNames(state.all.flatMap((cs) => cs.cls.students.map((st) => st.name)), (st) => {
+    const el = $('voice-base'); el.hidden = false; el.textContent = st.text; el.classList.toggle('busy', st.learning);
+    el.title = 'Имена загруженных классов разобраны для голосового ввода: распознаватель узнаёт их сразу. Остальные можно выучить кнопкой «🎓 Выучить имена».';
+  });
   if (errors.length) alert(errors.join('\n'));
 }
 
