@@ -4,7 +4,7 @@ import { buildReport, recalcRow, recalcSummary, fullDate } from './core/report.t
 import { gradeFor } from './core/distribute.ts';
 import {
   parseStructure, structureFromText, structureToText, structureMax, flattenColumns, taskHeader, taskMax,
-  cloneStructure, normalizeStructure, newPresetId, builtinPresets, technologyPreset, TECH_NAME, TECH_NAME_OLD, techSorPreset, TECH_SOR57, TECH_SOR8, TECH_LADDERS, rusSochPreset, RUS_SOCH_NAME, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
+  cloneStructure, normalizeStructure, newPresetId, builtinPresets, technologyPreset, TECH_NAME, TECH_NAME_OLD, techSorPreset, TECH_SOR57, TECH_SOR8, TECH_LADDERS, izo7Preset, IZO7_NAME, rusSochPreset, RUS_SOCH_NAME, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
 } from './core/structure.ts';
 import { buildHeader } from './core/header.ts';
 import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLadderGaps, type Ladder, type RuleStep } from './core/ladder.ts';
@@ -34,7 +34,7 @@ function defaults(): Settings {
     includeAbsent: false, absentColumns: false, showDates: false, chartIncludeTotal: true,
     fontName: 'Aptos Narrow',
     variantLabel: '', noteText: NOTE_DEFAULT,
-    ladders: {}, ladderRows: { ...TECH_LADDERS }, ladderRules: {}, workMode: 'dist', techV: 3,
+    ladders: {}, ladderRows: { ...TECH_LADDERS }, ladderRules: {}, workMode: 'dist', techV: 4,
     layout: mergeLayout(DEFAULT_LAYOUT, {}),
   };
 }
@@ -66,7 +66,9 @@ function loadSettings(): Settings {
           if (!s.presets.some((p) => p.name === TECH_SOR8)) s.presets.push(techSorPreset(TECH_SOR8, [5, 10, 10, 5, 10]));
           for (const [k, rows] of Object.entries(TECH_LADDERS)) if (!s.ladderRows[k]) s.ladderRows[k] = { ...rows };
         }
-        s.techV = 3;
+        if (!s.presets.some((p) => p.name === IZO7_NAME)) s.presets.push(izo7Preset());
+        if ((s.techV ?? 0) < 4) for (const [k, rows] of Object.entries(TECH_LADDERS)) if (!s.ladderRows[k]) s.ladderRows[k] = { ...rows };
+        s.techV = 4;
       }
       if (!s.presets.some((p) => p.name === RUS_SOCH_NAME)) s.presets.push(rusSochPreset());
       if (!s.presets.some((p) => p.id === s.presetId)) s.presetId = s.presets[0].id;
@@ -283,7 +285,8 @@ function addOne(cls: JournalClass): void {
     return;
   }
   const tech = /технолог/i.test(cls.subject ?? '') && cls.assessments.find((a) => a.id === cls.selectedAssessment)?.max === 50 ? s.presets.find((p) => p.name === (grade === '8' ? TECH_SOR8 : TECH_SOR57)) : undefined;
-  const auto = tech ?? (grade ? s.presets.find((p) => new RegExp(`^${grade}\\s*класс`, 'i').test(p.name)) : undefined);
+  const izo = /изо|изобраз/i.test(cls.subject ?? '') && grade === '7' ? s.presets.find((p) => p.name === IZO7_NAME) : undefined;
+  const auto = tech ?? izo ?? (grade ? s.presets.find((p) => new RegExp(`^${grade}\\s*класс`, 'i').test(p.name)) : undefined);
   state.all.push({ cls, presetId: auto && auto.id !== s.presetId ? auto.id : '', report: null });
 }
 

@@ -89,6 +89,12 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
   const base = new Map<number, number>();
   r.columns.forEach((_, ci) => { for (let j = 0; j < L.kOf[ci]; j++) base.set(L.phys[ci] + j, L.kOf[ci] > 1 ? 4.6 : 9); });
   base.set(L.total, 8.5); base.set(L.percent, 8.5); base.set(L.grade, 12);
+  // подпись не рвётся посреди слова: колонка не уже самого длинного слова своей подписи («Аккуратность»)
+  for (const cell of buildHeader(r.structure, r.columns).cells) {
+    if (cell.vertical || cell.colSpan !== 1) continue;
+    const c = L.scoreStart + cell.col, word = Math.max(...cell.text.split(/\s+/).map((w) => w.length));
+    if (base.has(c)) base.set(c, Math.max(base.get(c)!, Math.min(20, word * 1.1 + 1.5)));
+  }
   const fixedW = (ws.getColumn(1).width ?? 4) + (ws.getColumn(2).width ?? 27) + (L.reason ? 25 : 0);
   const want = Math.max(95, 22 + r.rows.length * 2.4); // ширина диаграммы в символах
   const have = [...base.values()].reduce((a, b) => a + b, 0);
