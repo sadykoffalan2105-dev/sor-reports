@@ -339,6 +339,8 @@ function renderClasses(): void {
         <label>Разбаловка <select data-act="preset">${presetOptions(cs.presetId, true)}</select></label>
         <label>Дата проведения <span class="row"><input type="date" data-act="dateHeld" value="${toIso(c.dateHeld)}" /><button class="btn small ghost" type="button" data-act="journal-date" title="взять дату СОР из журнала">из журнала</button></span></label>
         <label>Внесено в emaktab <input type="date" data-act="dateEntered" value="${toIso(c.dateEntered)}" /></label>
+        <label title="Как класс пишется в заголовке и на листе">Класс <input type="text" data-act="className" value="${h(c.className)}" style="width:6em" /></label>
+        <label title="Предмет в заголовке отчёта («по предмету …»)">Предмет <input type="text" data-act="subject" value="${h(c.subject ?? '')}" placeholder="например, ИЗО" style="width:14em" /></label>
         <label class="chk" title="Колонки «Причина отсутствия» и «Дата сдачи» — только у этого класса"><input type="checkbox" data-act="abscols" ${(c.absentColumns ?? S().absentColumns) ? 'checked' : ''} /> форма 1/2 (отсутствующие)</label>
       </div>${warn}</div>`;
   }).join('');
@@ -1166,6 +1168,8 @@ function bindEvents(): void {
     if (t.dataset.act === 'dateHeld') cs.cls.dateHeld = fromIso(t.value) || undefined;
     if (t.dataset.act === 'dateEntered') cs.cls.dateEntered = fromIso(t.value) || undefined;
     if (t.dataset.act === 'abscols') cs.cls.absentColumns = t.checked;
+    if (t.dataset.act === 'className' && t.value.trim()) cs.cls.className = t.value.trim();
+    if (t.dataset.act === 'subject') cs.cls.subject = t.value.trim() || undefined;
     rebuild(i); state.active = i;
     if (t.dataset.act === 'dateHeld' || t.dataset.act === 'dateEntered') { renderTabs(); renderPreview(); return; } // не перерисовывать карточку — не терять фокус
     render();

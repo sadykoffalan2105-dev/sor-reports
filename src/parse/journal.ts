@@ -33,7 +33,7 @@ export function parseWorkbook(data: ArrayBuffer, fileName: string): JournalClass
 
 /** Выгрузка журнала emaktab: шапка «Класс: … / Предмет: … / ФИО учителя: …», строки «Месяц / Число / Фамилия и имя ученика». */
 export function parseJournalRows(rows: Cell[][], source: string, sheetName: string): JournalClass | null {
-  const dayRow = rows.findIndex((r) => r.some((c) => /^число$/i.test(str(c))));
+  const dayRow = rows.findIndex((r) => r.some((c) => /^(число|son|kun)$/i.test(str(c)))); // выгрузка на русском или узбекском
   if (dayRow < 1) return null;
   const monthRow = rows[dayRow - 1] ?? [];
   const nameRow = rows[dayRow + 1] ?? [];
@@ -48,15 +48,15 @@ export function parseJournalRows(rows: Cell[][], source: string, sheetName: stri
     for (const c of r) {
       const s = str(c);
       let m: RegExpMatchArray | null;
-      if ((m = s.match(/класс\s*:?\s*(\d{1,2})\s*[-–]?\s*([А-ЯЁA-Z])(?![А-Яа-яЁёA-Za-z])(?:\s*\(([^)]*)\))?(?:.*?(\d{4})\s*[/–-]\s*(\d{4}))?/i))) {
+      if ((m = s.match(/(?:класс|sinf)\s*:?\s*(\d{1,2})\s*[-–]?\s*([А-ЯЁA-Z])(?![А-Яа-яЁёA-Za-z])(?:\s*\(([^)]*)\))?(?:.*?(\d{4})\s*[/–-]\s*(\d{4}))?/i))) {
         cls.className = `${m[1]}-${m[2].toUpperCase()}`;
         const g = (m[3] ?? '').toLowerCase();
         if (/мальч|o[‘'’]g[‘'’]il|boys/.test(g)) cls.group = 'мальчики';
         else if (/дев|qiz|girls/.test(g)) cls.group = 'девочки';
         if (m[4] && m[5]) cls.year = `${m[4]}–${m[5]}`;
-      } else if ((m = s.match(/предмет\s*:?\s*(.+)/i))) {
+      } else if ((m = s.match(/(?:предмет|fan)\s*:\s*(.+)/i))) {
         cls.subject = m[1].trim();
-      } else if ((m = s.match(/(?:ФИО\s+)?учител[ья]\s*:?\s*(.+)/i))) {
+      } else if ((m = s.match(/(?:ФИО\s+)?учител[ья]\s*:?\s*(.+)/i) ?? s.match(/o[‘'’`]?qituvchi\S*\s+FIO\s*:\s*(.+)/i))) {
         cls.teacher = m[1].trim();
       }
     }
@@ -81,8 +81,8 @@ export function parseJournalRows(rows: Cell[][], source: string, sheetName: stri
   const counters: Record<Kind, number> = { 'СОР': 0, 'СОЧ': 0 };
   for (let c = 0; c < day.length; c++) {
     const s = str(day[c]);
-    if (!/^(СОР|СОЧ|BJB|ChSB|ЧСБ|БЖБ)/i.test(s)) continue;
-    const kind: Kind = /СОР|BJB|БЖБ/i.test(s) ? 'СОР' : 'СОЧ';
+    if (!/^(СОР|СОЧ|BJB|BSB|ChSB|CHSB|ЧСБ|БЖБ)/i.test(s)) continue; // BSB — СОР, CHSB — СОЧ (узбекская выгрузка)
+    const kind: Kind = /СОР|BJB|BSB|БЖБ/i.test(s) ? 'СОР' : 'СОЧ';
     const dateS = str(monthRow[c]);
     const max = num(nameRow[c]) ?? (kind === 'СОР' ? 50 : 40);
     counters[kind]++;
