@@ -4,7 +4,7 @@ import { buildReport, recalcRow, recalcSummary, fullDate } from './core/report.t
 import { gradeFor } from './core/distribute.ts';
 import {
   parseStructure, structureFromText, structureToText, structureMax, flattenColumns, taskHeader, taskMax,
-  cloneStructure, normalizeStructure, newPresetId, builtinPresets, technologyPreset, TECH_NAME, TECH_NAME_OLD, techSorPreset, TECH_SOR57, TECH_SOR8, TECH_LADDERS, izo7Preset, IZO7_NAME, rusSochPreset, RUS_SOCH_NAME, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
+  cloneStructure, normalizeStructure, newPresetId, scaleStructure, builtinPresets, technologyPreset, TECH_NAME, TECH_NAME_OLD, techSorPreset, TECH_SOR57, TECH_SOR8, TECH_LADDERS, izo7Preset, IZO7_NAME, rusSochPreset, RUS_SOCH_NAME, columnName, bandRanges, bandLabel, bandIndex, partMax, nodeAt, pathNum,
 } from './core/structure.ts';
 import { buildHeader } from './core/header.ts';
 import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLadderGaps, type Ladder, type RuleStep } from './core/ladder.ts';
@@ -328,7 +328,7 @@ function renderClasses(): void {
     }).join('');
     const sm = structureMax(structureFor(cs));
     const am = selectedMax(c);
-    const warn = am != null && sm !== am ? `<div class="warn">Сумма разбаловки ${sm} ≠ максимуму работы в журнале ${am}. Выберите другую разбаловку для этого класса или поправьте её.</div>` : '';
+    const warn = am != null && sm !== am ? `<div class="warn">Сумма разбаловки ${sm} ≠ максимуму работы ${am}. <button class="btn small" type="button" data-act="fit-max" title="Копия разбаловки, где каждый критерий пропорционально уменьшен/увеличен — сумма ровно ${am}">Подогнать разбаловку под ${am}</button> или выберите другую.</div>` : '';
     return `<div class="cls" data-i="${i}">
       <div><span class="name">${h(c.className)}${c.group ? ' · ' + h(c.group) : ''}${entryTags(cs).subj ? ' · ' + h(c.subject ?? '') : ''}${c.reportKind ? ` · <span class="kind k-${c.reportKind === 'СОЧ' ? 'soch' : 'sor'}">${c.reportKind}</span>` : ''}</span>
         ${kindBadges(c)}
@@ -339,6 +339,7 @@ function renderClasses(): void {
         <label>Разбаловка <select data-act="preset">${presetOptions(cs.presetId, true)}</select></label>
         <label>Дата проведения <span class="row"><input type="date" data-act="dateHeld" value="${toIso(c.dateHeld)}" /><button class="btn small ghost" type="button" data-act="journal-date" title="взять дату СОР из журнала">из журнала</button></span></label>
         <label>Внесено в emaktab <input type="date" data-act="dateEntered" value="${toIso(c.dateEntered)}" /></label>
+        <label title="На сколько баллов работа (СОР — 20, 25, 30, 50 …; СОЧ — 40). Обычно берётся из журнала">Макс. балл <input type="number" step="any" min="1" data-act="amax" value="${am ?? ''}" style="width:5em" /></label>
         <label title="Как класс пишется в заголовке и на листе">Класс <input type="text" data-act="className" value="${h(c.className)}" style="width:6em" /></label>
         <label title="Предмет в заголовке отчёта («по предмету …»)">Предмет <input type="text" data-act="subject" value="${h(c.subject ?? '')}" placeholder="например, ИЗО" style="width:14em" /></label>
         <label class="chk" title="Колонки «Причина отсутствия» и «Дата сдачи» — только у этого класса"><input type="checkbox" data-act="abscols" ${(c.absentColumns ?? S().absentColumns) ? 'checked' : ''} /> форма 1/2 (отсутствующие)</label>
@@ -462,10 +463,10 @@ function renderStructureEditor(): void {
     </tr>`;
   }).join('');
   const total = structureMax(s);
-  const ok = total === 50 || total === 40;
+  const ok = total > 0;
   $('struct-editor').innerHTML = `<table class="st"><thead><tr><th>№</th><th>Название в шапке</th><th>Критерии: баллы · название · цель % · уровни · «＋ под» — подкритерии</th><th>Баллы</th><th>Цель %</th><th>Уровни</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="3"><button class="mini" type="button" data-act="add-task">＋ задание</button></td><td class="n"><b data-k="total">${total}</b></td><td colspan="3" class="${ok ? 'ok' : 'bad'}" data-k="total-note">${ok ? '✓ итого' : 'обычно СОР = 50, СОЧ = 40'}</td></tr></tfoot></table>`;
+    <tfoot><tr><td colspan="3"><button class="mini" type="button" data-act="add-task">＋ задание</button></td><td class="n"><b data-k="total">${total}</b></td><td colspan="3" class="${ok ? 'ok' : 'bad'}"><span data-k="total-note">${ok ? '✓ итого' : 'нет баллов'}</span> <span class="scale" title="Пересчитать все критерии пропорционально — СОР бывает на 20, 25, 30, 50 баллов, СОЧ — 40">на <input type="number" step="any" min="1" data-k="scale-to" placeholder="25" style="width:4.5em" /> б. <button class="mini" type="button" data-act="scale">Пересчитать</button></span></td></tr></tfoot></table>`;
 }
 
 const pathOf = (el: Element | null): number[] | null => {
@@ -498,11 +499,11 @@ function onStructInput(t: HTMLInputElement): void {
   const cur = editingStructure();
   const sum = tr.querySelector('[data-k="tsum"]'); if (sum) sum.textContent = String(taskMax(cur.tasks[ti]));
   tr.querySelectorAll('.part-group').forEach((g) => { const path = pathOf(g); const node = path && (nodeAt(cur, path) as Part | undefined); const el = g.querySelector('[data-k="psum"]'); if (node && el) el.textContent = String(partMax(node)); });
-  const total = structureMax(cur); const ok = total === 50 || total === 40;
+  const total = structureMax(cur); const ok = total > 0;
   const ed = $('struct-editor');
   ed.querySelector('[data-k="total"]')!.textContent = String(total);
   const note = ed.querySelector('[data-k="total-note"]')!;
-  note.className = ok ? 'ok' : 'bad'; note.textContent = ok ? '✓ итого' : 'обычно СОР = 50, СОЧ = 40';
+  note.textContent = ok ? '✓ итого' : 'нет баллов';
   renderStructureView();
   rebuild(); renderEditTabs(); renderClasses(); renderLadder(); renderTabs(); renderPreview();
 }
@@ -513,6 +514,11 @@ function onStructClick(btn: HTMLElement): void {
   const tr = btn.closest('tr.task-row') as HTMLElement | null;
   const ti = tr ? Number(tr.dataset.t) : -1;
   const task = st.tasks[ti] as Task | undefined;
+  if (act === 'scale') { // вся разбаловка на другое число баллов
+    const v = Number((btn.closest('td')?.querySelector('[data-k="scale-to"]') as HTMLInputElement | null)?.value.replace(',', '.'));
+    if (!(v > 0)) return;
+    setStructure(scaleStructure(st, v)); rebuild(); render(); return;
+  }
   if (act === 'add-task') st.tasks.push({ title: '', parts: [], max: 5 });
   else if (act === 'del-task' && st.tasks.length > 1) st.tasks.splice(ti, 1);
   else if (act === 'up' && ti > 0) [st.tasks[ti - 1], st.tasks[ti]] = [st.tasks[ti], st.tasks[ti - 1]];
@@ -1168,6 +1174,7 @@ function bindEvents(): void {
     if (t.dataset.act === 'dateHeld') cs.cls.dateHeld = fromIso(t.value) || undefined;
     if (t.dataset.act === 'dateEntered') cs.cls.dateEntered = fromIso(t.value) || undefined;
     if (t.dataset.act === 'abscols') cs.cls.absentColumns = t.checked;
+    if (t.dataset.act === 'amax') { const a = cs.cls.assessments.find((x) => x.id === cs.cls.selectedAssessment) ?? cs.cls.assessments[0]; const v = Number(t.value.replace(',', '.')); if (a && v > 0) a.max = v; }
     if (t.dataset.act === 'className' && t.value.trim()) cs.cls.className = t.value.trim();
     if (t.dataset.act === 'subject') cs.cls.subject = t.value.trim() || undefined;
     rebuild(i); state.active = i;
@@ -1191,6 +1198,19 @@ function bindEvents(): void {
     S().presetId = p.id; S().structure = cloneStructure(p.structure); // сразу открыть её в редакторе
     saveSettings(); rebuild(); render();
     $('struct-editor').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
+  $('classes').addEventListener('click', (e) => { // подогнать разбаловку под максимум работы (СОР на 20, 25 …)
+    const b = (e.target as HTMLElement).closest('[data-act="fit-max"]'); if (!b) return;
+    const cs = state.classes[Number(b.closest('.cls')?.getAttribute('data-i'))]; if (!cs) return;
+    const am = selectedMax(cs.cls); if (!am) return;
+    const src = (cs.presetId && presetById(cs.presetId)) || currentPreset();
+    const name = `${src.name.replace(/\s*→ \d+([.,]\d+)?$/, '')} → ${am}`;
+    let p = S().presets.find((x) => x.name === name);
+    if (!p) { p = { id: newPresetId(), name, structure: scaleStructure(src.structure, am) }; S().presets.push(p); }
+    for (const x of state.classes) if (x.presetId === cs.presetId && selectedMax(x.cls) === am) x.presetId = p.id; // такие же классы — тоже
+    cs.presetId = p.id;
+    const g = cs.cls.className.match(/^\d+/)?.[0]; if (g) state.editGrade = g;
+    saveSettings(); rebuild(); render();
   });
   $('classes').addEventListener('click', (e) => {
     const jd = (e.target as HTMLElement).closest('[data-act="journal-date"]');

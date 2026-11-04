@@ -202,6 +202,35 @@ export function structureFromText(text: string, prev?: Structure): Structure | n
   return s;
 }
 
+/**
+ * Разбаловка на другое число баллов (СОР бывает на 20, 25, 30, 50 …): каждый критерий пропорционально,
+ * целыми баллами, сумма — ровно newMax (остаток — критериям с наибольшей дробной частью). Названия, уровни сохраняются.
+ */
+export function scaleStructure(src: Structure, newMax: number): Structure {
+  const st = cloneStructure(src);
+  const leaves: { node: Task | Part; max: number }[] = [];
+  const walk = (n: Task | Part) => { if (n.parts?.length) n.parts.forEach(walk); else leaves.push({ node: n, max: n.max }); };
+  st.tasks.forEach(walk);
+  const old = leaves.reduce((a, l) => a + l.max, 0);
+  if (!old || newMax <= 0) return st;
+  // целые, если делится ровно; иначе ровно половинками (5 → 2,5); иначе целые с остатком
+  const exact = (u: number) => leaves.every((l) => Math.abs(((l.max * newMax) / old / u) - Math.round((l.max * newMax) / old / u)) < 1e-9);
+  const unit = exact(1) ? 1 : exact(0.5) ? 0.5 : Number.isInteger(newMax) ? 1 : 0.5;
+  const raw = leaves.map((l) => (l.max * newMax) / old / unit);
+  const out = raw.map((x) => Math.max(raw.length > newMax / unit ? 0 : 1, Math.floor(x)));
+  let left = Math.round(newMax / unit) - out.reduce((a, b) => a + b, 0);
+  const order = raw.map((x, i) => ({ i, f: x - Math.floor(x) })).sort((a, b) => b.f - a.f || leaves[b.i].max - leaves[a.i].max);
+  for (let k = 0; left > 0; k++) { out[order[k % order.length].i]++; left--; }
+  while (left < 0) { const i = out.indexOf(Math.max(...out)); if (out[i] <= 0) break; out[i]--; left++; } // перебор — с самого крупного
+  leaves.forEach((l, i) => {
+    const n = l.node as Part; n.max = out[i] * unit;
+    if (n.fixed != null) n.fixed = n.max; // «у всех» — полный балл критерия
+    n.step = undefined; // стоимость вопроса на новой разбаловке не сохраняется
+  });
+  for (const t of st.tasks) { if (t.parts.length) t.max = taskMax(t); t.title = t.title?.replace(/\b\d+(\s*балл)/i, (_m, w) => `${taskMax(t)}${w}`) ?? ''; }
+  return st;
+}
+
 export function cloneStructure(s: Structure): Structure {
   const cp = (p: Part): Part => ({ label: p.label ?? '', max: p.max, target: p.target, bands: p.bands, ...(p.fixed != null ? { fixed: p.fixed } : {}), ...(p.step ? { step: p.step } : {}), ...(p.parts?.length ? { parts: p.parts.map(cp) } : {}) });
   return {
