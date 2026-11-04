@@ -85,7 +85,7 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
   const longest = Math.max(10, ...r.rows.map((x) => x.name.length));
   ws.getColumn(1).width = 4;
   ws.getColumn(2).width = Math.min(40, Math.max(27.4, longest * 1.05 + 2));
-  if (L.reason) { ws.getColumn(L.reason).width = 14; ws.getColumn(L.date!).width = 11; }
+  if (L.reason) { ws.getColumn(L.reason).width = 14; ws.getColumn(L.date!).width = 12.5; } // дата «09.10.2026» в одну строку
   const base = new Map<number, number>();
   r.columns.forEach((_, ci) => { for (let j = 0; j < L.kOf[ci]; j++) base.set(L.phys[ci] + j, L.kOf[ci] > 1 ? 4.6 : 9); });
   base.set(L.total, 8.5); base.set(L.percent, 8.5); base.set(L.grade, 12);
@@ -97,7 +97,8 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
   if (L.helper) r.columns.forEach((_, ci) => { ws.getColumn(L.helper + ci).width = 6; ws.getColumn(L.helper + ci).hidden = true; });
 
   // строки 1–3: шапка
-  const titleEnd = Math.max(3, L.last - 1); // заголовок на всю таблицу, в колонке «Оценивание» — цифра варианта
+  const variant = s.variantLabel.trim() || (r.absentColumns ? '1/2' : '1');
+  const titleEnd = Math.max(3, L.last - (variant.length > 1 ? 2 : 1)); // заголовок на всю таблицу, справа — цифра варианта («1/2» — на две колонки)
   if (Ly.showTitle) {
     ws.mergeCells(1, 1, 1, titleEnd);
     const t = ws.getCell(1, 1);
@@ -216,27 +217,34 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
   const avgRow = Ly.showAvg ? next++ : 0, pctRow = Ly.showPct ? next++ : 0;
   const c5Row = Ly.showCounts ? next++ : 0, c4Row = Ly.showCounts ? next++ : 0, effRow = Ly.showEff ? next++ : 0;
   const gradeRange = scoreRange(L.grade, first, lastRow);
-  const colOf = (cc: number) => { if (cc === L.total) return { ci: -1, max: r.max }; const ci = L.phys.findIndex((p, i) => cc >= p && cc < p + L.kOf[i]); return { ci, max: r.columns[ci]?.max ?? 1 }; };
   if (avgRow) {
     ws.getCell(avgRow, 2).value = 'Сред.балл:';
-    for (let cc = L.scoreStart; cc <= L.total; cc++) {
-      const { ci } = colOf(cc);
-      const cell = ws.getCell(avgRow, cc);
-      cell.value = { formula: `SUM(${scoreRange(cc, first, lastRow)})/${N}`, result: cc === L.total ? r.avgTotal : (k > 1 ? 0 : r.avg[ci]) };
-      cell.numFmt = '0.00';
-    }
+    // по критерию: колонки уровней объединены в одну клетку, среднее — по сумме всех уровней критерия
+    const byCrit = (row: number, value: (ci: number, rng: string) => ExcelJS.CellValue, fmt: string) => {
+      r.columns.forEach((_, ci) => {
+        const c1 = L.phys[ci], c2 = c1 + L.kOf[ci] - 1;
+        if (c2 > c1) ws.mergeCells(row, c1, row, c2);
+        const cell = ws.getCell(row, c1);
+        cell.value = value(ci, `${A(c1)}${first}:${A(c2)}${lastRow}`); cell.numFmt = fmt; cell.alignment = center;
+      });
+    };
+    byCrit(avgRow, (ci, rng) => ({ formula: `SUM(${rng})/${N}`, result: r.avg[ci] }), '0.00');
+    ws.getCell(avgRow, L.total).value = { formula: `SUM(${scoreRange(L.total, first, lastRow)})/${N}`, result: r.avgTotal };
+    ws.getCell(avgRow, L.total).numFmt = '0.00';
     ws.getCell(avgRow, L.percent).value = { formula: `${A(L.total)}${avgRow}/${r.max}`, result: r.max ? r.avgTotal / r.max : 0 };
     ws.getCell(avgRow, L.percent).numFmt = '0%';
     ws.getCell(avgRow, L.grade).value = { formula: gradeFormula(`${A(L.percent)}${avgRow}`, r.thresholds), result: gradeFor(r.max ? r.avgTotal / r.max : 0, r.thresholds) };
   }
   if (pctRow) {
     ws.getCell(pctRow, 2).value = 'Процентный показатель';
-    for (let cc = L.scoreStart; cc <= L.total; cc++) {
-      const { ci, max } = colOf(cc);
-      const cell = ws.getCell(pctRow, cc);
-      cell.value = { formula: `SUM(${scoreRange(cc, first, lastRow)})/${N}/${max || 1}`, result: max ? (cc === L.total ? r.avgTotal : (k > 1 ? 0 : r.avg[ci])) / max : 0 };
-      cell.numFmt = '0%';
-    }
+    r.columns.forEach((c, ci) => {
+      const c1 = L.phys[ci], c2 = c1 + L.kOf[ci] - 1;
+      if (c2 > c1) ws.mergeCells(pctRow, c1, pctRow, c2);
+      const cell = ws.getCell(pctRow, c1);
+      cell.value = { formula: `SUM(${A(c1)}${first}:${A(c2)}${lastRow})/${N}/${c.max || 1}`, result: c.max ? r.avg[ci] / c.max : 0 }; cell.numFmt = '0%'; cell.alignment = center;
+    });
+    ws.getCell(pctRow, L.total).value = { formula: `SUM(${scoreRange(L.total, first, lastRow)})/${N}/${r.max || 1}`, result: r.max ? r.avgTotal / r.max : 0 };
+    ws.getCell(pctRow, L.total).numFmt = '0%';
   }
   if (c5Row) {
     const c0 = L.reason || L.scoreStart; // число — в соседней с подписью клетке (и в форме 1/2)
@@ -280,7 +288,6 @@ export function fillSheet(ws: ExcelJS.Worksheet, report: ClassReport, s: Setting
 
   // фигуры: фиолетовая цифра варианта справа от заголовка и блок «Примечание» под подписью
   const shapes: DrawingShape[] = [];
-  const variant = s.variantLabel.trim() || (r.absentColumns ? '1/2' : '1');
   if (Ly.showVariant && Ly.showTitle) shapes.push({ kind: 'variant', text: variant, anchor: { fromCol: titleEnd, fromRow: 0, toCol: L.last + 1, toRow: 1 } });
   const noteLines = Ly.showNote ? s.noteText.split(/\r?\n/).map((x) => x.trim()).filter(Boolean) : [];
   if (noteLines.length) {
