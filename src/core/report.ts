@@ -100,7 +100,7 @@ export function buildReport(cls: JournalClass, s: Settings, structure = s.struct
     }
     const row: ReportRow = { n: ++n, name: st.name, absent: false, scores, total: 0, percent: 0, grade: 0, reason: st.reason, retake: st.retake, studentIndex: i, manual: !!own, raw: raw ?? undefined, incomplete: !!raw && raw.some((v) => v == null) };
     if (paper && fromJournal != null) { row.journalTotal = r2(fromJournal); row.fromJournal = !own && st.manualScore == null; }
-    else if (byItems && !own) row.journalTotal = r2(score); // раскидка по вопросам: 37,5 при 38 в журнале — округление
+    if (byItems && !own) { row.itemSplit = true; if (row.journalTotal == null) row.journalTotal = r2(score); } // раскидка по вопросам: 37,5 при 38 в журнале — округление
     recalcRow(row, max, s.thresholds);
     rows.push(row);
   });
@@ -175,7 +175,7 @@ export function recalcRow(row: ReportRow, max: number, th: Settings['thresholds'
   const sum = r2(row.scores.reduce((x, y) => x + y, 0));
   // журнал хранит округлённый балл (37,5 → 38 или 37): расхождение меньше 1 — не ошибка, общий балл как в журнале
   const j = row.journalTotal;
-  row.rounded = j != null && !row.incomplete && sum !== j && Math.abs(sum - j) < 1 ? sum : undefined;
+  row.rounded = j != null && !row.incomplete && sum !== j && Math.abs(sum - j) < (row.itemSplit ? 1.01 : 1) ? sum : undefined; // 39 при вопросах по 2,5/4,5/5,5 → 40 по вопросам, в отчёте 39
   row.total = row.rounded != null ? j! : sum;
   row.percent = max ? row.total / max : 0;
   row.grade = gradeFor(row.percent, th);
