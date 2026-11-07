@@ -94,7 +94,7 @@ function saveSettings(): void {
   try { localStorage.setItem(LS, JSON.stringify(state.settings)); } catch { /* ignore */ }
 }
 
-const state = { all: [] as ClassState[], classes: [] as ClassState[], settings: loadSettings(), active: 0, editGrade: '', ladderFull: false };
+const state = { all: [] as ClassState[], classes: [] as ClassState[], settings: loadSettings(), active: 0, editGrade: '', ladderFull: false, bulkTotal: null as number | null };
 
 /* ---------- утилиты ---------- */
 
@@ -725,7 +725,7 @@ function renderPreview(): void {
   const pend = r.rows.filter((x) => x.pending), inc = r.rows.filter((x) => x.incomplete);
   const fromJ = r.rows.filter((x) => x.fromJournal), diff = r.rows.filter(rowDiff);
   const paperInfo = S().workMode === 'paper' ? `<div class="paper-info ${pend.length || inc.length ? 'warn' : 'ok'}">${pend.length ? `Не введено: <b>${pend.length}</b> из ${r.rows.length} — диктуйте «🎤 Голосовой ввод» или вводите в таблице (Enter — следующая клетка). Не введённые попадут в отчёт отсутствующими.` : 'Общий балл у всех есть.'}${fromJ.length ? ` Общий балл из журнала: <b>${fromJ.length}</b> — критерии пока разложены по раскладке, продиктуйте их с бумаги или подтвердите (✓). <button class="btn small" type="button" data-act="confirm-all" title="Принять раскладку у всех голубых строк">✓ Подтвердить все ${fromJ.length}</button>` : ''}${inc.length ? ` Не все критерии: ${inc.map((x) => h(x.name.split(' ')[0])).join(', ')}.` : ''}${diff.length ? ` <b class="diff-t">Сумма критериев ≠ журналу:</b> ${diff.map((x) => `${h(x.name.split(' ')[0])} (${x.total} / ${x.journalTotal})`).join(', ')}.` : ''}</div>` : '';
-  const info = paperInfo + `<div class="info">Разбаловка класса: <b>${h(own ? own.name : currentPreset().name)}</b> · ${h(structureToText(structureFor(cs)))}${own ? ' (своя для этого класса — меняется в списке классов)' : ' (общая)'}</div>`;
+  const info = paperInfo + bulkPanel(r) + `<div class="info">Разбаловка класса: <b>${h(own ? own.name : currentPreset().name)}</b> · ${h(structureToText(structureFor(cs)))}${own ? ' (своя для этого класса — меняется в списке классов)' : ' (общая)'}</div>`;
 
   const Ly = r.layout;
   const extra = r.absentColumns ? `<th rowspan="2">Причина отсутствия</th><th rowspan="2">Дата сдачи ${r.kind}а</th>` : '';
@@ -777,6 +777,27 @@ function renderPreview(): void {
 /** Бумажный режим: продиктованная сумма критериев не совпала с общим баллом из журнала. */
 const rowDiff = (row: ReportRow) => !row.fromJournal && !row.pending && !row.incomplete && row.journalTotal != null && row.total !== row.journalTotal;
 const totalTip = (row: ReportRow) => row.journalTotal == null ? '' : row.fromJournal ? 'Общий балл из журнала' : row.rounded != null ? `Сумма критериев ${String(row.rounded).replace('.', ',')} — округлено как в журнале: ${row.journalTotal}` : rowDiff(row) ? `В журнале ${row.journalTotal} — сумма критериев другая` : `Совпадает с журналом (${row.journalTotal})`;
+
+/** Баллы журнала у голубых строк (раскладка ещё не принята): балл → строки. */
+function journalGroups(r: ClassReport): Map<number, ReportRow[]> {
+  const m = new Map<number, ReportRow[]>();
+  for (const row of r.rows) if (row.fromJournal && row.journalTotal != null) m.set(row.journalTotal, [...(m.get(row.journalTotal) ?? []), row]);
+  return new Map([...m.entries()].sort((a, b) => b[0] - a[0]));
+}
+/** «Проставить по баллу»: своя раскладка для балла журнала — всем ученикам с этим баллом сразу. */
+function bulkPanel(r: ClassReport): string {
+  const g = journalGroups(r);
+  if (!g.size) return '';
+  if (state.bulkTotal == null || !g.has(state.bulkTotal)) state.bulkTotal = [...g.keys()][0];
+  const t = state.bulkTotal, rows = g.get(t)!, sc = rows[0].scores;
+  const names = r.columns.map((c) => (c.path.length === 1 ? `${c.path[0] + 1} зд` : pathNum(c.path)));
+  const sum = Math.round(sc.reduce((a, b) => a + b, 0) * 100) / 100;
+  return `<div class="bulk"><b>Проставить по баллу</b>
+    <select data-act="bulk-total" title="Балл в журнале">${[...g.entries()].map(([k, v]) => `<option value="${k}" ${k === t ? 'selected' : ''}>${String(k).replace('.', ',')} — ${v.length} уч.</option>`).join('')}</select>
+    <span class="bulk-cells">${r.columns.map((c, i) => `<label title="${h(c.header.replace(/\n/g, ' ') || names[i])}"><small>${h(names[i])} · ${c.max}</small><input type="number" step="any" min="0" max="${c.max}" data-bulk="${i}" value="${sc[i]}" /></label>`).join('')}</span>
+    <span class="bulk-sum" data-k="bulk-sum">= ${String(sum).replace('.', ',')}</span>
+    <button class="btn small accent" type="button" data-act="bulk-apply" title="Эту раскладку получат все ученики с баллом ${t} (строки станут введёнными ✎); для целого балла она запомнится в лестнице">✓ Проставить всем ${rows.length}</button></div>`;
+}
 
 /** Правка балла в ячейке: пересчитать строку и итоги без перерисовки всей таблицы. */
 function onScoreEdit(input: HTMLInputElement): void {
@@ -1284,6 +1305,29 @@ function bindEvents(): void {
     }
     else return;
     rebuild(state.active); renderPreview();
+  });
+  $('preview').addEventListener('change', (e) => { // «Проставить по баллу»: выбрали другой балл
+    const t = e.target as HTMLSelectElement; if (t.dataset.act !== 'bulk-total') return;
+    state.bulkTotal = Number(t.value); renderPreview();
+  });
+  $('preview').addEventListener('input', (e) => { // сумма раскладки на лету
+    const t = e.target as HTMLInputElement; if (t.dataset.bulk == null) return;
+    const box = t.closest('.bulk')!; const sum = [...box.querySelectorAll<HTMLInputElement>('[data-bulk]')].reduce((a, x) => a + (Number(x.value.replace(',', '.')) || 0), 0);
+    const el = box.querySelector('[data-k="bulk-sum"]')!; el.textContent = `= ${String(Math.round(sum * 100) / 100).replace('.', ',')}`;
+    el.classList.toggle('bad', state.bulkTotal != null && Math.abs(sum - state.bulkTotal) >= 1);
+  });
+  $('preview').addEventListener('click', (e) => { // «Проставить всем N»
+    const b = (e.target as HTMLElement).closest('[data-act="bulk-apply"]'); if (!b) return;
+    const cs = state.classes[state.active]; const r = cs?.report; const t = state.bulkTotal; if (!cs || !r || t == null) return;
+    const box = b.closest('.bulk')!;
+    const sc = [...box.querySelectorAll<HTMLInputElement>('[data-bulk]')].map((x, i) => Math.max(0, Math.min(r.columns[i].max, Math.round((Number(x.value.replace(',', '.')) || 0) * 100) / 100)));
+    const sum = sc.reduce((a, v) => a + v, 0);
+    if (Math.abs(sum - t) >= 1) { tell(`Сумма раскладки ${String(Math.round(sum * 100) / 100).replace('.', ',')} не совпадает с баллом ${t}. Поправьте критерии.`); return; }
+    for (const row of journalGroups(r).get(t) ?? []) { const st = cs.cls.students[row.studentIndex]; if (st) { st.manualScores = sc.slice(); st.forceAbsent = false; } }
+    if (Number.isInteger(t) && Math.abs(sum - t) < 1e-9 && sc.every((v) => Number.isInteger(v))) { // запомнить в лестнице этой разбаловки
+      const key = structureTextFor(cs); (S().ladderRows[key] ??= {})[String(t)] = sc.slice(); saveSettings();
+    }
+    state.bulkTotal = null; rebuild(state.active); renderPreview();
   });
   $('preview').addEventListener('click', (e) => { // подтвердить разбаловку строки / всех
     const b = (e.target as HTMLElement).closest('[data-act="confirm-row"], [data-act="confirm-all"]') as HTMLElement | null; if (!b) return;

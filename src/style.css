@@ -384,6 +384,14 @@ body[data-mode="paper"] #voice-btn { background: var(--accent); color: #fff; bor
 .ui-dialog-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .delc .ok { border: 0; background: transparent; color: #1a7f37; cursor: pointer; font-weight: 700; padding: 0 4px; }
 .delc .ok:hover { background: #e6f6ea; border-radius: 4px; }
+.bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 10px; margin: 6px 0; border: 1px solid #9fd8ac; background: #f2fbf4; border-radius: 10px; font-size: 13px; }
+.bulk select { width: auto; }
+.bulk-cells { display: flex; flex-wrap: wrap; gap: 6px; }
+.bulk-cells label { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.bulk-cells small { color: var(--muted); font-size: 11px; }
+.bulk-cells input { width: 56px; text-align: center; }
+.bulk-sum { font-weight: 700; }
+.bulk-sum.bad { color: #b00020; }
 .autosave { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; color: var(--muted); margin: 6px 0; }
 .voice-base { font-size: 12px; color: #1a6b2f; background: #e6f6ea; border: 1px solid #9fd8ac; border-radius: 10px; padding: 2px 8px; align-self: center; }
 .voice-base.busy { color: #8a6100; background: #fff7e0; border-color: #f0d28a; }
