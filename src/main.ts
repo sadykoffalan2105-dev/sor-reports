@@ -14,7 +14,7 @@ import { initVoice } from './voice/voice.ts';
 import { ask, tell } from './ui/dialog.ts';
 import { prepareNames } from './voice/names.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
-import type { ClassReport, JournalClass, Kind, Part, Preset, ReportRow, Settings, Structure, Task } from './core/types.ts';
+import type { AssessmentColumn, ClassReport, JournalClass, Kind, Part, Preset, ReportRow, Settings, Structure, Task } from './core/types.ts';
 
 /* ---------- состояние ---------- */
 
@@ -153,7 +153,7 @@ function migrateLadders(s: Settings): void {
 /** Отчёт класса (вид работы и номер — свои у СОР и СОЧ). over — поправки настроек (пустышка: все ученики). */
 function reportFor(cs: ClassState, over: Partial<Settings> = {}): ClassReport | null {
   const k = kindOf(cs), s = S();
-  const sk: Settings = { ...s, ...(k === s.kind ? {} : { kind: k, number: k === 'СОЧ' ? cs.cls.quarter ?? s.number : s.number }), ...over };
+  const sk: Settings = { ...s, ...(k === s.kind ? {} : { kind: k, number: k === 'СОЧ' ? cs.cls.quarter ?? s.number : s.number }), ...(cs.cls.reportNumber ? { number: cs.cls.reportNumber } : {}), ...over };
   const r = cs.cls.assessments.length ? buildReport(cs.cls, sk, structureFor(cs), ladderFor(structureTextFor(cs)).rows) : null;
   if (r) { const t = entryTags(cs); r.sheetName = [r.sheetName, t.subj, t.kind].filter(Boolean).join(' '); }
   return r;
@@ -226,7 +226,8 @@ function subjectShort(subj?: string): string {
 function entryTags(cs: ClassState): { subj: string; kind: string } {
   const same = state.classes.filter((x) => x.cls.className === cs.cls.className && x.cls.group === cs.cls.group);
   const subj = new Set(same.map((x) => (x.cls.subject ?? '').trim().toLowerCase())).size > 1 ? subjectShort(cs.cls.subject) : '';
-  const kind = cs.cls.reportKind && state.classes.some((x) => x.cls.reportKind && x.cls.reportKind !== cs.cls.reportKind) ? cs.cls.reportKind : '';
+  const kind0 = cs.cls.reportKind && state.classes.some((x) => x.cls.reportKind && x.cls.reportKind !== cs.cls.reportKind) ? cs.cls.reportKind : '';
+  const kind = cs.cls.reportNumber ? `${cs.cls.reportKind ?? 'СОР'}-${cs.cls.reportNumber}` : kind0; // «СОР-1», «СОР-2»
   return { subj, kind };
 }
 const kindOf = (cs: ClassState): Kind => cs.cls.reportKind ?? (S().make === 'СОЧ' ? 'СОЧ' : 'СОР');
@@ -243,10 +244,16 @@ function applyMake(): void {
 /** Журнал с колонками СОР и СОЧ → две записи класса: у каждой своя колонка, разбаловка и ручные баллы. */
 function addClass(cls: JournalClass): void {
   const sor = has(cls, 'СОР'), soch = cls.assessments.some((a) => a.kind === 'СОЧ' && a.scores.some((x) => x != null)); // пустой СОЧ — только бейдж «без баллов»
-  if (!cls.structure && sor && soch) {
-    const twin: JournalClass = { ...cls, students: cls.students.map((st) => ({ n: st.n, name: st.name, id: st.id })), assessments: cls.assessments.map((a) => ({ ...a, scores: a.scores.slice() })), reportKind: 'СОЧ', selectedAssessment: lastOf(cls, 'СОЧ') };
-    cls.reportKind = 'СОР'; cls.selectedAssessment = lastOf(cls, 'СОР');
-    addOne(cls); addOne(twin);
+  const sorCols = cls.assessments.filter((a) => a.kind === 'СОР' && a.scores.some((x) => x != null));
+  if (!cls.structure && (sor && soch || sorCols.length > 1)) {
+    // свой класс-запись на каждую работу: СОР-1, СОР-2 (две колонки BSB), СОЧ — у каждой своя колонка, разбаловка, баллы и лист
+    const twin = (kind: Kind, a: AssessmentColumn | undefined, n: number): JournalClass => ({
+      ...cls, id: `${cls.id}-${n}`, students: cls.students.map((st) => ({ n: st.n, name: st.name, id: st.id })), assessments: cls.assessments.map((x) => ({ ...x, scores: x.scores.slice() })),
+      reportKind: kind, selectedAssessment: a?.id ?? lastOf(cls, kind), reportNumber: kind === 'СОР' && sorCols.length > 1 ? a?.ordinal : undefined,
+    });
+    const list = sorCols.length > 1 ? sorCols.map((a, i) => twin('СОР', a, i)) : sor ? [twin('СОР', undefined, 0)] : [];
+    if (soch) list.push(twin('СОЧ', undefined, 9));
+    list.forEach(addOne);
   } else {
     if (cls.assessments.length && cls.assessments.every((a) => a.kind === 'СОЧ')) cls.reportKind = 'СОЧ';
     else if (cls.assessments.some((a) => a.col >= 0)) cls.reportKind = 'СОР';
@@ -330,7 +337,7 @@ function renderClasses(): void {
     const am = selectedMax(c);
     const warn = am != null && sm !== am ? `<div class="warn">Сумма разбаловки ${sm} ≠ максимуму работы ${am}. <button class="btn small" type="button" data-act="fit-max" title="Копия разбаловки, где каждый критерий пропорционально уменьшен/увеличен — сумма ровно ${am}">Подогнать разбаловку под ${am}</button> или выберите другую.</div>` : '';
     return `<div class="cls" data-i="${i}">
-      <div><span class="name">${h(c.className)}${c.group ? ' · ' + h(c.group) : ''}${entryTags(cs).subj ? ' · ' + h(c.subject ?? '') : ''}${c.reportKind ? ` · <span class="kind k-${c.reportKind === 'СОЧ' ? 'soch' : 'sor'}">${c.reportKind}</span>` : ''}</span>
+      <div><span class="name">${h(c.className)}${c.group ? ' · ' + h(c.group) : ''}${entryTags(cs).subj ? ' · ' + h(c.subject ?? '') : ''}${c.reportKind ? ` · <span class="kind k-${c.reportKind === 'СОЧ' ? 'soch' : 'sor'}">${c.reportKind}${c.reportNumber ? '-' + c.reportNumber : ''}</span>` : ''}</span>
         ${kindBadges(c)}
         <div class="meta">${h(c.subject ?? '')}${c.quarter ? ' · ' + c.quarter + ' четверть' : ''} · учеников: ${c.students.length} · ${h(c.source)}</div></div>
       <button class="btn small ghost" data-act="remove" title="Убрать класс">✕</button>
