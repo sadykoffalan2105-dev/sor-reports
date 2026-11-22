@@ -11,6 +11,7 @@ import { generateLadder, generateLadderByRule, ladderErrors, ladderFits, fillLad
 import type { RecognizeResult } from './vision/recognize.ts'; // только тип — модуль грузится лениво
 import { DEFAULT_LAYOUT, LAYOUT_PRESETS, mergeLayout } from './core/layout.ts';
 import { initVoice } from './voice/voice.ts';
+import { initGate, track } from './platform/gate.ts';
 import { ask, tell } from './ui/dialog.ts';
 import { prepareNames } from './voice/names.ts';
 import { exportWorkbook, fileNameFor } from './export/xlsx.ts';
@@ -199,6 +200,7 @@ async function addFiles(files: FileList | File[]): Promise<void> {
   state.active = Math.max(0, Math.min(state.classes.length - 1, firstNew)); // первый класс из этих файлов (СОР раньше СОЧ)
   render();
   prepareVoiceNames();
+  track('journal', files.length, state.classes.slice(firstNew).map((c) => c.cls.className).join(', '));
   if (errors.length) tell(errors.join('\n'));
 }
 
@@ -1362,6 +1364,7 @@ function bindEvents(): void {
     if (!reports.length) return;
     if (!(await confirmPending(reports))) return;
     download(await exportWorkbook(reports, S()), fileNameFor(reports, S()));
+    track('book', 1, `${S().kind}-${S().number}: ${reports.map((r) => r.className).join(', ')}`); track('report', reports.length);
   });
   $('dl-blank').addEventListener('click', async () => {
     const cs = state.classes[state.active]; const r = cs && reportFor(cs, { includeAbsent: true, workMode: 'dist' }); if (!r) return; // в бланке — все ученики
@@ -1375,6 +1378,7 @@ function bindEvents(): void {
     const r = state.classes[state.active]?.report; if (!r) return;
     if (!(await confirmPending([r]))) return;
     download(await exportWorkbook([r], S()), fileNameFor([r], S()).replace('.xlsx', ` ${r.sheetName}.xlsx`));
+    track('book', 1, `${S().kind}-${S().number}: ${r.className}`); track('report', 1);
   });
   $('reshuffle').addEventListener('click', () => {
     const s = S();
@@ -1465,6 +1469,7 @@ bindSettings();
 bindPhoto();
 bindEvents();
 render();
+void initGate(); // вход по логину, если платформа настроена (platform.json); без связи с сервером работа не останавливается
 void restoreWork().finally(() => { restored = true; if (state.all.length) { render(); prepareVoiceNames(); } renderAutosave(); });
 
 /* ---------- приложение: установка (PWA) и офлайн-работа ---------- */

@@ -1,0 +1,33 @@
+# Сервер платформы (бесплатный Supabase) засыпает после недели без обращений.
+# Два раза в сутки обращаемся к нему сами — он не засыпает. Если сервер не ответил — запуск падает, GitHub пришлёт письмо.
+name: Platform keep-alive
+on:
+  schedule:
+    - cron: '17 3,15 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ping platform
+        run: |
+          URL=$(jq -r '.url // ""' public/platform.json); KEY=$(jq -r '.anonKey // ""' public/platform.json)
+          if [ -z "$URL" ]; then echo "platform is off (public/platform.json is empty)"; exit 0; fi
+          code=000
+          for i in 1 2 3; do
+            code=$(curl -s -m 40 -o /tmp/r -w '%{http_code}' -X POST "$URL/rest/v1/rpc/app_state" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -d '{}' || true)
+            echo "try $i: HTTP $code"; [ "$code" = "200" ] && break; sleep 30
+          done
+          [ "$code" = "200" ]
+      # расписание GitHub отключает через 60 дней без изменений в репозитории — раз в месяц делаем отметку
+      - name: Monthly touch
+        if: github.event_name == 'schedule'
+        run: |
+          if [ "$(date -u +%d)" = "01" ]; then
+            date -u +%F > .github/keepalive.txt
+            git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/keepalive.txt && git commit -m "chore: keep-alive [skip ci]" && git push || true
+          fi

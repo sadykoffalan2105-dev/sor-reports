@@ -15,7 +15,8 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== location.origin) return;
   // страница: сеть, при отсутствии сети — из кэша
   if (req.mode === 'navigate') {
-    e.respondWith(fetch(req).then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('./index.html', copy)); return res; }).catch(() => caches.match('./index.html')));
+    const home = /\/(index\.html)?$/.test(url.pathname); // admin.html (панель владельца) не должна подменять главную в кэше
+    e.respondWith(fetch(req).then((res) => { if (home) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('./index.html', copy)); } return res; }).catch(() => (home ? caches.match('./index.html') : Response.error())));
     return;
   }
   // файлы сборки (с хэшем в имени), иконки, модель речи — кэш, иначе сеть с сохранением
