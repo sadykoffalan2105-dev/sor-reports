@@ -419,3 +419,7 @@ body.gated { overflow: hidden; }
 .gate-msg.err { color: var(--warn); }
 .user-chip .off { opacity: .8; font-size: 11px; }
 .foot-link { color: var(--muted); }
+
+.rep.adm .on { color: #1a7f37; font-weight: 700; }
+.rep.adm .off, .mini-t .off { color: var(--muted); }
+.mini-t .on { color: #1a7f37; font-weight: 700; }

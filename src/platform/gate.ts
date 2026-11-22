@@ -70,7 +70,7 @@ function showOffline(e: Error): void {
 
 function showLogin(cfg: PlatformConfig, device: string, msg = ''): void {
   overlay(`<h2>Вход в «Отчёты СОР / СОЧ»</h2>
-    <p class="hint">Логин и пароль выдаёт основатель платформы.</p>
+    <p class="hint">Логин и пароль выдаёт владелец платформы.</p>
     <form id="gate-form" class="gate-form">
       <label>Логин <input id="gate-login" autocomplete="username" required autofocus /></label>
       <label>Пароль <input id="gate-pass" type="password" autocomplete="current-password" required /></label>

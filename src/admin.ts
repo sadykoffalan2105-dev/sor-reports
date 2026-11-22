@@ -24,6 +24,18 @@ const ua = (s: string): string => {
   return [os, br].filter(Boolean).join(' · ') || s.slice(0, 40);
 };
 
+let autoTimer = 0;
+const ONLINE_MS = 3 * 60 * 1000;
+const isOnline = (iso: string | null | undefined): boolean => !!iso && Date.now() - new Date(iso).getTime() < ONLINE_MS;
+/** «онлайн» / «был 5 мин назад» / «вчера 14:20». */
+const seen = (iso: string | null | undefined): string => {
+  if (!iso) return '<span class="off">ещё не входил(а)</span>';
+  if (isOnline(iso)) return '<span class="on">● онлайн</span>';
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  const ago = min < 60 ? `${min} мин назад` : min < 60 * 24 ? `${Math.floor(min / 60)} ч назад` : `${Math.floor(min / 1440)} дн назад`;
+  return `<span class="off">○ не в сети</span><br><small>был(а) ${ago} · ${fmtWhen(iso)}</small>`;
+};
+
 async function main(): Promise<void> {
   const c = await loadConfig();
   if (!c) {
@@ -37,7 +49,7 @@ async function main(): Promise<void> {
   }
   if (!me) { await renderLogin(); return; }
   if (me.role !== 'owner') {
-    root().innerHTML = `<section class="card"><h2>Доступ только основателю</h2><p>Вы вошли как <b>${h(me.login)}</b>. <a href="./">Перейти к отчётам</a> или <button class="btn small" id="relogin" type="button">выйти и войти как основатель</button></p></section>`;
+    root().innerHTML = `<section class="card"><h2>Доступ только владельцу</h2><p>Вы вошли как <b>${h(me.login)}</b>. <a href="./">Перейти к отчётам</a> или <button class="btn small" id="relogin" type="button">выйти и войти как владелец</button></p></section>`;
     $('relogin').addEventListener('click', () => { localStorage.removeItem(LS_TOKEN); location.reload(); });
     return;
   }
@@ -49,7 +61,7 @@ async function renderLogin(): Promise<void> {
   try { state = await rpc<{ has_owner: boolean }>(cfg, 'app_state'); } catch (e) { root().innerHTML = `<section class="card"><h2>Нет связи</h2><p>${h((e as Error).message)}</p></section>`; return; }
   const setup = !state.has_owner;
   root().innerHTML = `<section class="card narrow">
-    <h2>${setup ? 'Первый запуск: создайте основателя' : 'Вход основателя'}</h2>
+    <h2>${setup ? 'Первый запуск: создайте владельца' : 'Вход владельца'}</h2>
     ${setup ? '<p class="hint">Основателя ещё нет. Задайте логин и пароль — это будет единственный аккаунт с доступом сюда.</p>' : ''}
     <form id="f" class="gate-form">
       <label>Логин <input id="login" autocomplete="username" required autofocus /></label>
@@ -64,7 +76,7 @@ async function renderLogin(): Promise<void> {
       if (setup) await rpc(cfg, 'app_setup_owner', { p_login: login, p_password: pass });
       const r = await rpc<{ token: string; user: PlatformUser }>(cfg, 'app_login', { p_login: login, p_password: pass, p_device_id: deviceId(), p_user_agent: navigator.userAgent });
       token = r.token; me = r.user; localStorage.setItem(LS_TOKEN, token);
-      if (me.role !== 'owner') { $('msg').textContent = 'Этот логин не основатель'; return; }
+      if (me.role !== 'owner') { $('msg').textContent = 'Этот логин не владелец'; return; }
       await renderDashboard();
     } catch (err) { $('msg').textContent = (err as Error).message; }
   });
@@ -81,14 +93,14 @@ async function renderDashboard(): Promise<void> {
   try { s = await load(); } catch (e) { if (e instanceof PlatformError && e.code === 'AUTH') { localStorage.removeItem(LS_TOKEN); me = null; await renderLogin(); return; } root().innerHTML = `<section class="card"><p class="err">${h((e as Error).message)}</p></section>`; return; }
   const tile = (v: string | number, l: string) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`;
   const rows = users.map((u) => `<tr data-id="${u.id}" class="${u.blocked ? 'blocked' : ''} ${open === u.id ? 'open' : ''}">
-      <td class="name"><b>${h(u.login)}</b>${u.role === 'owner' ? ' <span class="tag">основатель</span>' : ''}${u.blocked ? ' <span class="tag red">заблокирован</span>' : ''}<br><small>${h(u.name)}${u.note ? ' · ' + h(u.note) : ''}</small></td>
-      <td>${u.devices}</td><td>${u.books}</td><td>${u.reports}</td><td>${fmtHours(u.seconds)}</td><td>${fmtWhen(u.last_seen)}</td>
-      <td class="ops">${u.role === 'owner' ? '' : `<button class="mini" data-act="toggle" title="Устройства и действия">${open === u.id ? '▲' : '▼'}</button><button class="mini" data-act="block">${u.blocked ? 'Разблокировать' : 'Заблокировать'}</button><button class="mini" data-act="pass" title="Выдать новый пароль">Пароль</button><button class="mini" data-act="edit" title="Имя и заметка">✎</button><button class="mini danger" data-act="del" title="Удалить">✕</button>`}</td>
+      <td class="name"><b>${h(u.login)}</b>${u.role === 'owner' ? ' <span class="tag">владелец</span>' : ''}${u.blocked ? ' <span class="tag red">заблокирован</span>' : ''}<br><small>${h(u.name)}${u.note ? ' · ' + h(u.note) : ''}</small></td>
+      <td>${seen(u.last_seen)}</td><td>${u.devices}</td><td>${u.books}</td><td>${u.reports}</td><td>${fmtHours(u.seconds)}</td>
+      <td class="ops"><button class="mini" data-act="toggle" title="Устройства и действия">${open === u.id ? '▲ скрыть' : '▼ устройства'}</button>${u.role === 'owner' ? '' : `<button class="mini" data-act="block">${u.blocked ? 'Разблокировать' : 'Заблокировать'}</button><button class="mini" data-act="pass" title="Выдать новый пароль">Пароль</button><button class="mini" data-act="edit" title="Имя и заметка">✎</button><button class="mini danger" data-act="del" title="Удалить">✕</button>`}</td>
     </tr>${open === u.id ? `<tr class="detail"><td colspan="7" id="detail"><div class="empty">Загрузка…</div></td></tr>` : ''}`).join('');
   root().innerHTML = `
     <section class="card">
       <div class="actions"><span class="hint">Вы: <b>${h(me!.login)}</b></span><span class="sp"></span><button class="btn ghost small" id="refresh" type="button">Обновить</button><button class="btn ghost small" id="logout" type="button">Выйти</button></div>
-      <div class="stats">${tile(s.users, 'пользователей')}${tile(s.active_today, 'активны за сутки')}${tile(s.devices, 'устройств')}${tile(s.books, 'книг Excel')}${tile(s.reports, 'листов-отчётов')}${tile(fmtHours(s.seconds), 'часов работы')}${tile(s.blocked, 'заблокировано')}</div>
+      <div class="stats">${tile(users.filter((u) => isOnline(u.last_seen)).length, 'сейчас онлайн')}${tile(s.users, 'пользователей')}${tile(s.active_today, 'активны за сутки')}${tile(s.devices, 'устройств')}${tile(s.books, 'книг Excel')}${tile(s.reports, 'листов-отчётов')}${tile(fmtHours(s.seconds), 'часов работы')}${tile(s.blocked, 'заблокировано')}</div>
     </section>
     <section class="card">
       <h2>Новый пользователь</h2>
@@ -112,7 +124,7 @@ async function renderDashboard(): Promise<void> {
     </section>
     <section class="card">
       <h2>Пользователи</h2>
-      <div class="preview"><table class="rep adm"><thead><tr><th>Логин</th><th>Устройств</th><th>Книг</th><th>Листов</th><th>Часов</th><th>Был(а)</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="preview"><table class="rep adm"><thead><tr><th>Логин</th><th>Сейчас</th><th>Устройств</th><th>Книг</th><th>Отчётов (листов)</th><th>Время работы</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
     </section>`;
   $('refresh').addEventListener('click', () => void renderDashboard());
   $('logout').addEventListener('click', async () => { try { await rpc(cfg, 'app_logout', { p_token: token }); } catch { /* ignore */ } localStorage.removeItem(LS_TOKEN); location.reload(); });
@@ -136,6 +148,7 @@ async function renderDashboard(): Promise<void> {
     } catch (err) { msg.className = 'gate-msg err'; msg.textContent = (err as Error).message; }
   });
   root().querySelector('tbody')!.addEventListener('click', onUserAction);
+  clearTimeout(autoTimer); autoTimer = window.setTimeout(() => { const a = document.activeElement; const typing = !!a && /INPUT|TEXTAREA/.test(a.tagName) && (a as HTMLInputElement).value !== '' && a.id !== 'c-pass'; if (typing || !$('issued').hidden) { clearTimeout(autoTimer); autoTimer = window.setTimeout(() => void renderDashboard(), 60000); } else void renderDashboard(); }, 60000);
   if (open) void renderDetail(open);
 }
 
@@ -166,8 +179,8 @@ async function renderDetail(id: string): Promise<void> {
   try {
     const [devs, evs] = await Promise.all([rpc<Device[]>(cfg, 'app_admin_devices', { p_token: token, p_user_id: id }), rpc<Ev[]>(cfg, 'app_admin_events', { p_token: token, p_user_id: id, p_limit: 40 })]);
     cell.innerHTML = `<div class="detail-grid">
-      <div><b>Устройства (${devs.length})</b><table class="mini-t"><thead><tr><th>Устройство</th><th>Книг</th><th>Листов</th><th>Часов</th><th>Первый вход</th><th>Последний</th></tr></thead><tbody>
-        ${devs.map((d) => `<tr><td title="${h(d.device_id)}">${h(ua(d.user_agent))}<br><small>${h(d.device_id.slice(0, 8))}…</small></td><td>${d.books}</td><td>${d.reports}</td><td>${fmtHours(d.active_seconds)}</td><td>${fmtWhen(d.first_seen)}</td><td>${fmtWhen(d.last_seen)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">ещё не входил(а)</td></tr>'}
+      <div><b>Устройства (${devs.length})</b><table class="mini-t"><thead><tr><th>Устройство</th><th>Сейчас</th><th>Книг</th><th>Листов</th><th>Время работы</th><th>Первый вход</th></tr></thead><tbody>
+        ${devs.map((d) => `<tr><td title="${h(d.device_id)}">${h(ua(d.user_agent))}<br><small>${h(d.device_id.slice(0, 8))}…</small></td><td>${seen(d.last_seen)}</td><td>${d.books}</td><td>${d.reports}</td><td>${fmtHours(d.active_seconds)}</td><td>${fmtWhen(d.first_seen)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">ещё не входил(а)</td></tr>'}
       </tbody></table></div>
       <div><b>Последние действия</b><table class="mini-t"><tbody>
         ${evs.map((ev) => `<tr><td>${fmtWhen(ev.at)}</td><td>${h(KIND[ev.kind] ?? ev.kind)}${ev.qty > 1 ? ` ×${ev.qty}` : ''}</td><td><small>${h(ev.info)}</small></td></tr>`).join('') || '<tr><td class="empty">пока нет</td></tr>'}

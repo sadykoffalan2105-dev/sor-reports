@@ -6,8 +6,8 @@ export interface PlatformUser { id: string; login: string; name: string; role: '
 const ERRORS: Record<string, string> = {
   AUTH: 'Сессия истекла — войдите снова',
   LOGIN: 'Неверный логин или пароль',
-  BLOCKED: 'Доступ заблокирован основателем',
-  FORBIDDEN: 'Только для основателя',
+  BLOCKED: 'Доступ заблокирован владельцем',
+  FORBIDDEN: 'Только для владельца',
   OWNER_EXISTS: 'Основатель уже создан',
   WEAK: 'Логин не короче 3 символов, пароль — 6',
   EXISTS: 'Такой логин уже есть',
